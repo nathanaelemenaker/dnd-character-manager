@@ -1,0 +1,40 @@
+
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes: [redisdata:/data]
+  web:
+    build: .
+    image: dnd-sheet:latest
+    environment:
+      DATABASE_URL: "postgresql://app:app@db:5432/app?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      APP_BASE_URL: "https://emenaker.org"
+      APP_SECRET: "REPLACE_WITH_RANDOM_32+_CHARS"
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    command: >
+      sh -c "npx prisma migrate deploy && npm start"
+volumes:
+  dbdata:
+  redisdata:

@@ -1,0 +1,6 @@
+
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+a{color:#0b5fff;text-decoration:none}
+a:hover{text-decoration:underline}
+input,select,button{font:inherit;padding:8px}
+form{display:grid;gap:12px;max-width:420px}

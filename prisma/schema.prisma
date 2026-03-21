@@ -1,0 +1,183 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Ruleset {
+  SRD_2014
+  SRD_2024
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  hashedPassword String
+  name           String?
+  createdAt      DateTime @default(now())
+  characters     Character[]
+}
+
+model Character {
+  id             String            @id @default(cuid())
+  ownerId        String
+  owner          User              @relation(fields: [ownerId], references: [id])
+  name           String
+  ruleset        Ruleset           @default(SRD_2014)
+  level          Int               @default(1)
+  classes        CharacterClass[]
+  abilities      AbilityScores?
+  inventory      InventoryItem[]
+  spellsKnown    KnownSpell[]
+  spellsPrepared PreparedSpell[]
+  spellSlots     SpellSlotLedger[]
+  features       CharacterFeature[]
+  auditEvents    AuditEvent[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+model CharacterClass {
+  id           String    @id @default(cuid())
+  characterId  String
+  character    Character @relation(fields: [characterId], references: [id])
+  classKey     String
+  subclassKey  String?
+  level        Int
+  hpMethod     HpMethod  @default(FIXED)
+}
+
+enum HpMethod {
+  FIXED
+  ROLL
+}
+
+model AbilityScores {
+  id          String    @id @default(cuid())
+  characterId String    @unique
+  character   Character @relation(fields: [characterId], references: [id])
+
+  str      Int @default(10)
+  dex      Int @default(10)
+  con      Int @default(10)
+  intScore Int @default(10) @map("int")
+  wisScore Int @default(10) @map("wis")
+  chaScore Int @default(10) @map("cha")
+}
+
+model SpellDefinition {
+  id                String  @id @default(cuid())
+  ruleset           Ruleset
+  srdKey            String  @unique
+  name              String
+  level             Int
+  school            String
+  classes           String[]
+  ritual            Boolean
+  concentration     Boolean
+  text              String
+  sourceAttribution String
+
+  knownBy    KnownSpell[]
+  preparedBy PreparedSpell[]
+}
+
+model ItemDefinition {
+  id                 String  @id @default(cuid())
+  ruleset            Ruleset
+  srdKey             String  @unique
+  name               String
+  type               String
+  weight             Float?
+  rarity             String?
+  requiresAttunement Boolean?
+  text               String?
+  sourceAttribution  String
+  modifiers          Json?   // e.g. { acBase, maxDex, acBonus, shieldBonus }
+
+  inventoryItems InventoryItem[]
+}
+
+model FeatureDefinition {
+  id                String  @id @default(cuid())
+  ruleset           Ruleset
+  srdKey            String  @unique
+  name              String
+  classKey          String?
+  subclassKey       String?
+  level             Int
+  description       String
+  sourceAttribution String
+
+  characterFeatures CharacterFeature[]
+}
+
+model KnownSpell {
+  id          String  @id @default(cuid())
+  characterId String
+  spellId     String
+
+  character Character       @relation(fields: [characterId], references: [id])
+  spell     SpellDefinition @relation(fields: [spellId], references: [id])
+}
+
+model PreparedSpell {
+  id          String  @id @default(cuid())
+  characterId String
+  spellId     String
+
+  character Character       @relation(fields: [characterId], references: [id])
+  spell     SpellDefinition @relation(fields: [spellId], references: [id])
+}
+
+model SpellSlotLedger {
+  id          String   @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id])
+  ruleset     Ruleset
+  level       Int
+  maxSlots    Int
+  usedSlots   Int       @default(0)
+  asOfLevel   Int
+  updatedAt   DateTime  @updatedAt
+}
+
+model InventoryItem {
+  id           String         @id @default(cuid())
+  characterId  String
+  itemDefId    String
+
+  character Character      @relation(fields: [characterId], references: [id])
+  itemDef   ItemDefinition @relation(fields: [itemDefId], references: [id])
+
+  quantity    Int     @default(1)
+  attuned     Boolean @default(false)
+  equipped    Boolean @default(false) // NEW
+  containerId String?
+  notes       String?
+}
+
+model CharacterFeature {
+  id          String   @id @default(cuid())
+  characterId String
+  featureId   String
+
+  character Character        @relation(fields: [characterId], references: [id])
+  feature   FeatureDefinition @relation(fields: [featureId], references: [id])
+
+  choicePayload Json?
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  characterId  String
+  character    Character @relation(fields: [characterId], references: [id])
+  actorId      String?
+  type         String
+  payload      Json
+  createdAt    DateTime @default(now())
+}
