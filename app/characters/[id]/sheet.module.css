@@ -1,0 +1,124 @@
+/* app/characters/[id]/sheet.module.css */
+
+.root {
+  background: var(--parchment);
+  min-height: 100vh;
+  font-family: var(--font-body);
+}
+
+.header {
+  background: var(--ink);
+  color: var(--parchment);
+  padding: 10px 16px 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 3px solid var(--gold-light);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.headerLeft { flex: 1; min-width: 0; }
+
+.charName {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold-light);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.charMeta {
+  font-size: 12px;
+  color: #c8b99a;
+  margin-top: 2px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rulesetToggle {
+  display: flex;
+  border: 1.5px solid var(--gold);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.rulesetBtn {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  background: transparent;
+  color: #c8b99a;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.rulesetBtn.active {
+  background: var(--gold);
+  color: var(--ink);
+}
+
+.dndLogo {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--red);
+  letter-spacing: 2px;
+  border: 1.5px solid var(--red);
+  padding: 3px 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.nav {
+  display: flex;
+  background: var(--ink-light);
+  overflow-x: auto;
+  border-bottom: 2px solid var(--gold);
+  scrollbar-width: none;
+  position: sticky;
+  top: 53px;
+  z-index: 9;
+}
+
+.nav::-webkit-scrollbar { display: none; }
+
+.navBtn {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: #c8b99a;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.navBtn:hover { color: var(--gold-light); }
+
+.navActive {
+  color: var(--gold-light) !important;
+  border-bottom-color: var(--gold-light) !important;
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.content {
+  padding: 12px;
+  max-width: 900px;
+  margin: 0 auto;
+}

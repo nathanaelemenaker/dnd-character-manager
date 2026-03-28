@@ -1,18 +1,40 @@
-
+// app/api/auth/register/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/auth/hash';
-import { createSession } from '@/lib/auth/session';
+import { setAuthCookies } from '@/lib/auth';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  const { email, password, name } = await req.json();
-  if (!email || !password) return NextResponse.json({ error: 'Missing' }, { status: 400 });
+  try {
+    const body = await req.json().catch(() => ({} as any));
+    const email = String(body?.email ?? '').trim().toLowerCase();
+    const password = String(body?.password ?? '');
+    const name = String(body?.name ?? '').trim() || null;
 
-  const exists = await prisma.user.findUnique({ where: { email } });
-  if (exists) return NextResponse.json({ error: 'Email in use' }, { status: 409 });
+    if (!email || !password) {
+      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
+    }
+    if (password.length < 8) {
+      return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 });
+    }
 
-  const hashedPassword = await hashPassword(password);
-  const user = await prisma.user.create({ data: { email, hashedPassword, name } });
-  await createSession(user.id);
-  return NextResponse.json({ ok: true });
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
+    }
+
+    const hashedPassword = await hashPassword(password);
+    const user = await prisma.user.create({
+      data: { email, hashedPassword, name },
+      select: { id: true, email: true },
+    });
+
+    const res = NextResponse.json({ ok: true }, { status: 201 });
+    setAuthCookies(res, user.id, user.email);
+    return res;
+  } catch {
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+  }
 }

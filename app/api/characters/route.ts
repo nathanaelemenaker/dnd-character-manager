@@ -11,30 +11,11 @@ function clampInt(n: unknown, min: number, max: number, d: number) {
   return Math.max(min, Math.min(max, v));
 }
 
-async function ensureUserExists(userId: string, email?: string | null) {
-  const exists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (exists) return;
-
-  // Create a minimal user row so FK to Character.ownerId is valid.
-  // You can refine hashedPassword/name later; your session is cookie-based already.
-  await prisma.user.create({
-    data: {
-      id: userId,
-      email: (email && email.trim()) ? email.trim() : `${userId}@local`,
-      hashedPassword: '!', // placeholder to satisfy NOT NULL
-      name: null,
-    },
-  });
-}
-
 export async function GET() {
-  const session = getSession();
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   try {
-    // Listing doesn't strictly require a user row, but we'll ensure it anyway to be safe
-    await ensureUserExists(session.userId, session.email);
-
     const items = await prisma.character.findMany({
       where: { ownerId: session.userId },
       orderBy: [{ updatedAt: 'desc' }],
@@ -50,40 +31,28 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   try {
-    // Make sure the FK target exists before creating the character
-    await ensureUserExists(session.userId, session.email);
-
     const body = await req.json().catch(() => null);
     const rawName = (body?.name ?? '').toString().trim();
     const name = rawName || 'New Character';
 
-    // Guard ruleset with enum
     const rawRuleset = (body?.ruleset ?? '').toString().trim();
     const ruleset: 'SRD_2014' | 'SRD_2024' = rawRuleset === 'SRD_2024' ? 'SRD_2024' : 'SRD_2014';
 
     const level = clampInt(body?.level, 1, 20, 1);
 
     const created = await prisma.character.create({
-      data: {
-        ownerId: session.userId,
-        name,
-        ruleset,
-        level,
-      },
+      data: { ownerId: session.userId, name, ruleset, level },
       select: {
         id: true, name: true, level: true, ruleset: true, createdAt: true, updatedAt: true,
       },
     });
-
     return NextResponse.json(created, { status: 201 });
   } catch (e: any) {
     console.error('POST /characters error', e?.code ?? e);
-    // Optionally bubble Prisma code for faster debugging (comment out in prod)
-    // if (e?.code === 'P2003') return NextResponse.json({ error: 'fk_violation_user_missing' }, { status: 400 });
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

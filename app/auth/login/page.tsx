@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 export default function AuthLoginPage() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); // Replace TODO server-side when you add hashing
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 

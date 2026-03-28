@@ -16,7 +16,7 @@ export async function GET(
   _request: NextRequest,
   context: { params: { id: string } }
 ) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
@@ -50,7 +50,7 @@ export async function PUT(
   request: NextRequest,
   context: { params: { id: string } }
 ) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
@@ -125,7 +125,7 @@ export async function DELETE(
   _request: NextRequest,
   context: { params: { id: string } }
 ) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

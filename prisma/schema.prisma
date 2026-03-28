@@ -13,53 +13,72 @@ enum Ruleset {
   SRD_2024
 }
 
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
 model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
+  id             String     @id @default(cuid())
+  email          String     @unique
   hashedPassword String
   name           String?
-  createdAt      DateTime @default(now())
+  role           UserRole   @default(USER)
+  deletedAt      DateTime?
+  createdAt      DateTime   @default(now())
   characters     Character[]
 }
 
 model Character {
-  id             String            @id @default(cuid())
-  ownerId        String
-  owner          User              @relation(fields: [ownerId], references: [id])
-  name           String
-  ruleset        Ruleset           @default(SRD_2014)
-  level          Int               @default(1)
+  id      String  @id @default(cuid())
+  ownerId String
+  owner   User    @relation(fields: [ownerId], references: [id])
+
+  name    String
+  ruleset Ruleset @default(SRD_2014)
+  level   Int     @default(1)
+
+  // ── Combat & meta ──
+  race        String  @default("")
+  background  String  @default("")
+  alignment   String  @default("")
+  xp          Int     @default(0)
+  ac          Int     @default(10)
+  speed       Int     @default(30)
+  hpCurrent   Int     @default(8)
+  hpMax       Int     @default(8)
+  hpTemp      Int     @default(0)
+  inspiration Boolean @default(false)
+  portrait    String?
+
+  // ── JSON blobs ──
+  currency   Json @default("{\"cp\":0,\"sp\":0,\"ep\":0,\"gp\":0,\"pp\":0}")
+  bio        Json @default("{}")
+  deathSaves Json @default("{\"successes\":0,\"failures\":0}")
+
+  // ── Relations ──
   classes        CharacterClass[]
   abilities      AbilityScores?
+  skills         CharacterSkill[]
+  saves          CharacterSave[]
   inventory      InventoryItem[]
   spellsKnown    KnownSpell[]
   spellsPrepared PreparedSpell[]
   spellSlots     SpellSlotLedger[]
   features       CharacterFeature[]
+  customFeatures CharacterCustomFeature[]
+  notes          CharacterNote[]
   auditEvents    AuditEvent[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-}
 
-model CharacterClass {
-  id           String    @id @default(cuid())
-  characterId  String
-  character    Character @relation(fields: [characterId], references: [id])
-  classKey     String
-  subclassKey  String?
-  level        Int
-  hpMethod     HpMethod  @default(FIXED)
-}
-
-enum HpMethod {
-  FIXED
-  ROLL
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AbilityScores {
   id          String    @id @default(cuid())
   characterId String    @unique
-  character   Character @relation(fields: [characterId], references: [id])
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
 
   str      Int @default(10)
   dex      Int @default(10)
@@ -69,10 +88,64 @@ model AbilityScores {
   chaScore Int @default(10) @map("cha")
 }
 
+enum HpMethod {
+  FIXED
+  ROLL
+}
+
+model CharacterClass {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  classKey       String
+  subclassKey    String?
+  subclassNotes  String?
+  level          Int
+  hitDie         Int      @default(8)
+  hpMethod       HpMethod @default(FIXED)
+}
+
+model CharacterSkill {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  skillName   String
+  proficiency Int    @default(0)
+
+  @@unique([characterId, skillName])
+}
+
+model CharacterSave {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  abilityKey String
+  proficient Boolean @default(false)
+
+  @@unique([characterId, abilityKey])
+}
+
+model KnownSpell {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  spellName  String
+  spellLevel Int     @default(0)
+  school     String  @default("")
+  prepared   Boolean @default(true)
+  srdData    Json    @default("{}")
+
+  @@unique([characterId, spellName])
+}
+
 model SpellDefinition {
-  id                String  @id @default(cuid())
+  id                String    @id @default(cuid())
   ruleset           Ruleset
-  srdKey            String  @unique
+  srdKey            String    @unique
   name              String
   level             Int
   school            String
@@ -82,22 +155,31 @@ model SpellDefinition {
   text              String
   sourceAttribution String
 
-  knownBy    KnownSpell[]
   preparedBy PreparedSpell[]
 }
 
+model PreparedSpell {
+  id          String  @id @default(cuid())
+  characterId String
+  spellId     String
+
+  character Character       @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  spell     SpellDefinition @relation(fields: [spellId], references: [id])
+}
+
 model ItemDefinition {
-  id                 String  @id @default(cuid())
+  id                 String   @id @default(cuid())
   ruleset            Ruleset
-  srdKey             String  @unique
+  srdKey             String   @unique
   name               String
   type               String
   weight             Float?
   rarity             String?
   requiresAttunement Boolean?
+  keyAbilities       String?
   text               String?
   sourceAttribution  String
-  modifiers          Json?   // e.g. { acBase, maxDex, acBonus, shieldBonus }
+  modifiers          Json?
 
   inventoryItems InventoryItem[]
 }
@@ -116,68 +198,75 @@ model FeatureDefinition {
   characterFeatures CharacterFeature[]
 }
 
-model KnownSpell {
-  id          String  @id @default(cuid())
-  characterId String
-  spellId     String
-
-  character Character       @relation(fields: [characterId], references: [id])
-  spell     SpellDefinition @relation(fields: [spellId], references: [id])
-}
-
-model PreparedSpell {
-  id          String  @id @default(cuid())
-  characterId String
-  spellId     String
-
-  character Character       @relation(fields: [characterId], references: [id])
-  spell     SpellDefinition @relation(fields: [spellId], references: [id])
-}
-
-model SpellSlotLedger {
-  id          String   @id @default(cuid())
-  characterId String
-  character   Character @relation(fields: [characterId], references: [id])
-  ruleset     Ruleset
-  level       Int
-  maxSlots    Int
-  usedSlots   Int       @default(0)
-  asOfLevel   Int
-  updatedAt   DateTime  @updatedAt
-}
-
-model InventoryItem {
-  id           String         @id @default(cuid())
-  characterId  String
-  itemDefId    String
-
-  character Character      @relation(fields: [characterId], references: [id])
-  itemDef   ItemDefinition @relation(fields: [itemDefId], references: [id])
-
-  quantity    Int     @default(1)
-  attuned     Boolean @default(false)
-  equipped    Boolean @default(false) // NEW
-  containerId String?
-  notes       String?
-}
-
 model CharacterFeature {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   characterId String
   featureId   String
 
-  character Character        @relation(fields: [characterId], references: [id])
+  character Character         @relation(fields: [characterId], references: [id], onDelete: Cascade)
   feature   FeatureDefinition @relation(fields: [featureId], references: [id])
 
   choicePayload Json?
 }
 
+model CharacterCustomFeature {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  name      String
+  source    String @default("")
+  desc      String @default("")
+  sortOrder Int    @default(0)
+}
+
+model CharacterNote {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  title     String   @default("Untitled")
+  body      String   @default("")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SpellSlotLedger {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  ruleset     Ruleset
+  level       Int
+  maxSlots    Int
+  usedSlots   Int      @default(0)
+  asOfLevel   Int
+  updatedAt   DateTime @updatedAt
+
+  @@unique([characterId, level])
+}
+
+model InventoryItem {
+  id          String    @id @default(cuid())
+  characterId String
+  itemDefId   String
+
+  character Character      @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  itemDef   ItemDefinition @relation(fields: [itemDefId], references: [id])
+
+  quantity    Int     @default(1)
+  attuned     Boolean @default(false)
+  equipped    Boolean @default(false)
+  containerId String?
+  notes       String?
+}
+
 model AuditEvent {
-  id           String   @id @default(cuid())
-  characterId  String
-  character    Character @relation(fields: [characterId], references: [id])
-  actorId      String?
-  type         String
-  payload      Json
-  createdAt    DateTime @default(now())
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  actorId     String?
+  type        String
+  payload     Json
+  createdAt   DateTime  @default(now())
 }

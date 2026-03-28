@@ -10,7 +10,7 @@ function mod(score: number) {
 }
 
 export async function GET(_req: NextRequest, context: { params: { id: string } }) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const characterId = context.params.id;

@@ -30,7 +30,7 @@ export async function PATCH(
   request: NextRequest,
   context: { params: { id: string; invId?: string; invID?: string } }
 ) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const characterId = context.params.id;
@@ -97,7 +97,7 @@ export async function DELETE(
   _request: NextRequest,
   context: { params: { id: string; invId?: string; invID?: string } }
 ) {
-  const session = getSession();
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const characterId = context.params.id;
