@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-type RecordState = 'idle' | 'recording' | 'uploading' | 'pending' | 'processing' | 'done' | 'error';
+type RecordState = 'idle' | 'recording' | 'paused' | 'uploading' | 'pending' | 'processing' | 'done' | 'error';
 
 interface RecordButtonProps {
   campaignId: string;
@@ -102,6 +102,18 @@ export default function RecordButton({
         : `Could not start recording: ${e?.message}`);
       setState('error');
     }
+  }
+
+  function pauseRecording() {
+    mediaRecorderRef.current?.pause();
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    setState('paused');
+  }
+
+  function resumeRecording() {
+    mediaRecorderRef.current?.resume();
+    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    setState('recording');
   }
 
   function stopRecording() {
@@ -231,6 +243,36 @@ export default function RecordButton({
     );
   }
 
+  if (state === 'paused') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 14px', background: 'rgba(201,162,39,0.06)',
+        border: '1.5px solid var(--gold)', borderRadius: 5,
+      }}>
+        <span style={{
+          width: 10, height: 10, borderRadius: '50%', background: 'var(--gold)',
+          display: 'inline-block', flexShrink: 0,
+        }} />
+        <span style={{
+          fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700,
+          color: 'var(--gold)', minWidth: 60,
+        }}>
+          {formatDuration(elapsed)}
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--border)', flex: 1 }}>
+          Paused
+        </span>
+        <button className="ink-btn" style={{ fontSize: 12 }} onClick={resumeRecording}>
+          ▶ Resume
+        </button>
+        <button className="ink-btn danger" style={{ fontSize: 12 }} onClick={stopRecording}>
+          ⏹ Stop &amp; Upload
+        </button>
+      </div>
+    );
+  }
+
   if (state === 'recording') {
     return (
       <div style={{
@@ -253,11 +295,10 @@ export default function RecordButton({
         <span style={{ fontSize: 12, color: 'var(--border)', flex: 1 }}>
           Recording…
         </span>
-        <button
-          className="ink-btn danger"
-          style={{ fontSize: 12 }}
-          onClick={stopRecording}
-        >
+        <button className="ink-btn ghost" style={{ fontSize: 12 }} onClick={pauseRecording}>
+          ⏸ Pause
+        </button>
+        <button className="ink-btn danger" style={{ fontSize: 12 }} onClick={stopRecording}>
           ⏹ Stop &amp; Upload
         </button>
         <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
