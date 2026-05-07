@@ -619,7 +619,7 @@ export default function CharacterSheetClient({
       </div>
 
       <nav className={styles.nav}>
-        {['overview','abilities','combat','skills','spells','inventory','features','notes','class guide','bio'].map((t) => (
+        {['overview','abilities','combat','skills','spells','inventory','features','notes','campaigns','class guide','bio'].map((t) => (
           <button key={t} className={`${styles.navBtn} ${tab === t ? styles.navActive : ''}`} onClick={() => setTab(t)}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
@@ -627,15 +627,16 @@ export default function CharacterSheetClient({
       </nav>
 
       <div className={styles.content}>
-        {tab === 'overview'   && <OverviewTab   {...tabProps} />}
-        {tab === 'abilities'  && <AbilitiesTab  {...tabProps} setAbility={setAbility} />}
-        {tab === 'combat'     && <CombatTab     {...tabProps} />}
-        {tab === 'skills'     && <SkillsTab     {...tabProps} />}
-        {tab === 'spells'     && <SpellsTab     {...tabProps} />}
-        {tab === 'inventory'  && <InventoryTab  {...tabProps} />}
-        {tab === 'features'   && <FeaturesTab   {...tabProps} />}
-        {tab === 'notes'      && <NotesTab characterId={cid} />}
-        {tab === 'bio'        && <BioTab        {...tabProps} />}
+        {tab === 'overview'    && <OverviewTab   {...tabProps} />}
+        {tab === 'abilities'   && <AbilitiesTab  {...tabProps} setAbility={setAbility} />}
+        {tab === 'combat'      && <CombatTab     {...tabProps} />}
+        {tab === 'skills'      && <SkillsTab     {...tabProps} />}
+        {tab === 'spells'      && <SpellsTab     {...tabProps} />}
+        {tab === 'inventory'   && <InventoryTab  {...tabProps} />}
+        {tab === 'features'    && <FeaturesTab   {...tabProps} />}
+        {tab === 'notes'       && <NotesTab characterId={cid} />}
+        {tab === 'campaigns'   && <CampaignsTab characterId={cid} />}
+        {tab === 'bio'         && <BioTab        {...tabProps} />}
         {tab === 'class guide' && <ClassGuideTab classes={state.classes} currentLevel={state.level} saveClasses={saveClasses} />}
       </div>
 
@@ -2142,6 +2143,101 @@ function FeaturesTab({ state, addFeature, removeFeature }: any) {
           <textarea placeholder="Description…" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} style={{ resize: 'vertical' }} />
           <button className="ink-btn" onClick={handleAdd} style={{ alignSelf: 'flex-start' }}>Add Feature</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Campaigns ─────────────────────────────────────────────────────────────
+
+interface CampaignMembership {
+  id: string;
+  role: 'DM' | 'PLAYER';
+  campaign: {
+    id: string;
+    name: string;
+    description: string | null;
+    members: Array<{ user: { id: string; name: string | null; email: string } }>;
+    sessions: Array<{ id: string; sessionNumber: number; title: string | null; createdAt: string }>;
+    _count: { sessions: number };
+  };
+}
+
+function CampaignsTab({ characterId }: { characterId: string }) {
+  const [memberships, setMemberships] = useState<CampaignMembership[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/characters/${characterId}/campaigns`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setMemberships(d.memberships ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [characterId]);
+
+  if (loading) return <div className="empty-state">Loading…</div>;
+
+  if (memberships.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--border)' }}>
+        <div style={{ fontSize: 28, marginBottom: 10 }}>⚔️</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, marginBottom: 8 }}>Not in any campaigns</div>
+        <div style={{ fontSize: 12, fontStyle: 'italic', marginBottom: 16 }}>
+          This character hasn&apos;t been linked to a campaign yet.
+        </div>
+        <a href="/campaigns" style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--gold)', textDecoration: 'none' }}>
+          → Go to Campaigns
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {memberships.map(m => {
+        const dm = m.campaign.members[0];
+        const lastSession = m.campaign.sessions[0];
+        return (
+          <a key={m.id} href={`/campaigns/${m.campaign.id}`} style={{ textDecoration: 'none' }}>
+            <div
+              className="panel"
+              style={{ padding: 0, cursor: 'pointer', transition: 'border-color 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold)')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-light)')}
+            >
+              <div className="panel-header" style={{ justifyContent: 'space-between' }}>
+                <span>{m.campaign.name}</span>
+                <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.75, letterSpacing: 0 }}>
+                  {m.role === 'DM' ? '👑 DM' : 'Player'} · {m.campaign._count.sessions} session{m.campaign._count.sessions !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="panel-body" style={{ padding: '10px 12px' }}>
+                {m.campaign.description && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-light)', fontStyle: 'italic', marginBottom: 6 }}>
+                    {m.campaign.description}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--border)' }}>
+                  {dm && <span>DM: <strong style={{ color: 'var(--ink)' }}>{dm.user.name ?? dm.user.email}</strong></span>}
+                  {lastSession ? (
+                    <span>
+                      Last: Session #{lastSession.sessionNumber}
+                      {lastSession.title ? ` — ${lastSession.title}` : ''} ·{' '}
+                      {new Date(lastSession.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </span>
+                  ) : (
+                    <span>No sessions yet</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </a>
+        );
+      })}
+      <div style={{ textAlign: 'right', marginTop: 4 }}>
+        <a href="/campaigns" style={{ fontSize: 11, color: 'var(--border)', textDecoration: 'none' }}>
+          View all campaigns →
+        </a>
       </div>
     </div>
   );

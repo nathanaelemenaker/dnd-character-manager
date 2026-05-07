@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -29,6 +29,7 @@ interface Campaign {
   id: string;
   name: string;
   description: string | null;
+  notes: string;
   members: CampaignMember[];
   sessions: SessionSummary[];
   _count: { sessions: number };
@@ -43,7 +44,7 @@ export default function CampaignDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'sessions' | 'party' | 'settings'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'party' | 'notes' | 'settings'>('sessions');
 
   // New session form
   const [showNewSession, setShowNewSession] = useState(false);
@@ -261,7 +262,7 @@ export default function CampaignDetailPage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1.5px solid var(--border-light)', marginBottom: 20, gap: 2 }}>
-        {(['sessions', 'party', 'settings'] as const).filter(t => t !== 'settings' || isDM).map(tab => (
+        {(['sessions', 'party', 'notes', 'settings'] as const).filter(t => t !== 'settings' || isDM).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -280,7 +281,7 @@ export default function CampaignDetailPage() {
               marginBottom: -1.5,
             }}
           >
-            {tab === 'sessions' ? 'Sessions' : tab === 'party' ? 'Party' : 'Settings'}
+            {tab === 'sessions' ? 'Sessions' : tab === 'party' ? 'Party' : tab === 'notes' ? 'Campaign Notes' : 'Settings'}
           </button>
         ))}
       </div>
@@ -459,10 +460,83 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
+      {/* Campaign Notes tab */}
+      {activeTab === 'notes' && (
+        <CampaignNotesTab campaign={campaign} isDM={isDM} onSaved={load} />
+      )}
+
       {/* Settings tab (DM only) */}
       {activeTab === 'settings' && isDM && (
         <CampaignSettings campaign={campaign} onSaved={load} />
       )}
+    </div>
+  );
+}
+
+function CampaignNotesTab({
+  campaign, isDM, onSaved,
+}: { campaign: Campaign; isDM: boolean; onSaved: () => void }) {
+  const [notes, setNotes] = useState(campaign.notes ?? '');
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep local state in sync if campaign reloads
+  useEffect(() => { setNotes(campaign.notes ?? ''); }, [campaign.notes]);
+
+  function handleChange(val: string) {
+    setNotes(val);
+    if (!isDM) return;
+    setStatus('saving');
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      await fetch(`/api/campaigns/${campaign.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: val }),
+      });
+      setStatus('saved');
+      onSaved();
+      setTimeout(() => setStatus('idle'), 2000);
+    }, 1000);
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700, color: 'var(--ink)', letterSpacing: 0.5 }}>
+            Campaign Notes
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginTop: 4, maxWidth: 560 }}>
+            Use this space for NPC rosters, world context, recurring plot threads, house rules, and player character backgrounds.
+            This context is fed to Claude when generating session logs — the more detail here, the better the output.
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: status === 'saved' ? '#2e7d32' : 'var(--border)', fontStyle: 'italic', minWidth: 60, textAlign: 'right' }}>
+          {status === 'saving' ? 'Saving…' : status === 'saved' ? '✓ Saved' : isDM ? 'Auto-saves' : ''}
+        </div>
+      </div>
+      <textarea
+        style={{
+          width: '100%',
+          minHeight: 420,
+          border: '1.5px solid var(--border-light)',
+          borderRadius: 4,
+          padding: '12px 14px',
+          fontFamily: 'var(--font-body)',
+          fontSize: 14,
+          lineHeight: 1.8,
+          color: 'var(--ink)',
+          background: 'var(--parchment)',
+          resize: 'vertical',
+        }}
+        value={notes}
+        onChange={e => handleChange(e.target.value)}
+        readOnly={!isDM}
+        placeholder={isDM
+          ? `Examples of useful context:\n\n**NPCs**\n- Aldric the blacksmith: gruff dwarf, secretly a retired adventurer, knows more than he lets on\n- Queen Mira: politically savvy, suspects the party\n\n**World Context**\nThe Sunken Kingdom was swallowed by the sea 500 years ago. Artifacts occasionally wash ashore...\n\n**Party Backgrounds**\n- Leif (Nathanael): Firbolg druid, seeking his missing grove-mates\n- Rhonwyn (Laura): Half-elf wizard, studying ancient magic...`
+          : 'Campaign notes are set by the DM.'}
+      />
     </div>
   );
 }

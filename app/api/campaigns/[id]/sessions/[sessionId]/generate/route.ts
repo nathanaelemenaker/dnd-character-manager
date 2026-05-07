@@ -11,6 +11,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 function buildCampaignSystemPrompt(campaign: {
   name: string;
   description: string | null;
+  notes: string;
   members: Array<{
     role: string;
     user: { name: string | null; email: string };
@@ -31,6 +32,10 @@ function buildCampaignSystemPrompt(campaign: {
     return `  - ${playerName} plays ${m.character.name} (Level ${m.character.level} ${classStr})`;
   });
 
+  const notesSection = campaign.notes.trim()
+    ? `\nCampaign Notes & Context:\n${campaign.notes.trim()}\n`
+    : '';
+
   return `You are an expert D&D 5e session chronicler. Analyze the raw session transcript and produce a structured JSON document capturing the key events of the session.
 
 Campaign: ${campaign.name}${campaign.description ? `\nDescription: ${campaign.description}` : ''}
@@ -38,7 +43,7 @@ DM: ${dm ? (dm.user.name ?? dm.user.email) : 'Unknown'}
 
 Party:
 ${partyLines.join('\n')}
-
+${notesSection}
 You must respond with ONLY a valid JSON object — no markdown, no code fences, no preamble. The JSON must have exactly this structure:
 
 {
@@ -66,7 +71,31 @@ You must respond with ONLY a valid JSON object — no markdown, no code fences, 
   ]
 }
 
-If there were no combat encounters, return an empty array for combatLog. Include one partyStatus entry per party member even if they had minimal activity.`;
+If there were no combat encounters, return an empty array for combatLog. Include one partyStatus entry per party member even if they had minimal activity. Use character names (not player names) as the primary identifier in narratives.`;
+}
+
+function buildUserMessage(
+  sessionLog: { sessionNumber: number; title: string | null; rawTranscript: string },
+  previousSessions: Array<{ sessionNumber: number; title: string | null; generatedOutput: unknown }>
+): string {
+  const parts: string[] = [];
+
+  if (previousSessions.length > 0) {
+    parts.push('Previous Session Context (for continuity — do not re-summarize, use for background only):');
+    for (const prev of previousSessions) {
+      const output = prev.generatedOutput as { summary?: string } | null;
+      const title = prev.title ? ` — ${prev.title}` : '';
+      if (output?.summary) {
+        parts.push(`\nSession #${prev.sessionNumber}${title}:\n${output.summary}`);
+      }
+    }
+    parts.push('');
+  }
+
+  const sessionHeader = `Session #${sessionLog.sessionNumber}${sessionLog.title ? ` — ${sessionLog.title}` : ''}`;
+  parts.push(`${sessionHeader}\n\nHere is the raw session transcript:\n\n<transcript>\n${sessionLog.rawTranscript}\n</transcript>`);
+
+  return parts.join('\n');
 }
 
 export async function POST(
@@ -106,7 +135,22 @@ export async function POST(
     });
     if (!campaign) return NextResponse.json({ error: 'campaign_not_found' }, { status: 404 });
 
+    // Pull the 3 most recent prior sessions that have generated output
+    const previousSessions = await prisma.sessionLog.findMany({
+      where: {
+        campaignId: params.id,
+        sessionNumber: { lt: sessionLog.sessionNumber },
+        generatedOutput: { not: null },
+      },
+      orderBy: { sessionNumber: 'desc' },
+      take: 3,
+      select: { sessionNumber: true, title: true, generatedOutput: true },
+    });
+    // Reverse so they're oldest → newest for the prompt
+    previousSessions.reverse();
+
     const systemPrompt = buildCampaignSystemPrompt(campaign);
+    const userMessage = buildUserMessage(sessionLog, previousSessions);
 
     const message = await client.messages.create({
       model: 'claude-opus-4-7',
@@ -121,10 +165,7 @@ export async function POST(
         },
       ],
       messages: [
-        {
-          role: 'user',
-          content: `Session #${sessionLog.sessionNumber}${sessionLog.title ? ` — ${sessionLog.title}` : ''}\n\nHere is the raw session transcript:\n\n<transcript>\n${sessionLog.rawTranscript}\n</transcript>`,
-        },
+        { role: 'user', content: userMessage },
       ],
     });
 

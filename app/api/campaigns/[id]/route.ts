@@ -66,6 +66,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const data: Record<string, unknown> = {};
     if (body?.name !== undefined) data.name = body.name.toString().trim();
     if (body?.description !== undefined) data.description = body.description.toString().trim() || null;
+    if (body?.notes !== undefined) data.notes = body.notes.toString();
 
     const campaign = await prisma.campaign.update({
       where: { id: params.id },
