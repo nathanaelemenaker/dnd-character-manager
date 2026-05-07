@@ -58,6 +58,7 @@ export default function TopNav() {
 
         <nav style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
           <Link href="/characters">Characters</Link>
+          <Link href="/campaigns">Campaigns</Link>
         </nav>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>

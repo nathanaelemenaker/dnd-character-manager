@@ -12,6 +12,7 @@
     "sync:dnd5e": "tsx scripts/sync-dnd5eapi.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.0",
     "@node-rs/argon2": "^1.7.0",
     "@prisma/client": "^5.9.1",
     "jose": "^5.2.4",

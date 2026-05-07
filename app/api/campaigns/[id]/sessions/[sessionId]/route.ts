@@ -1,0 +1,55 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { getSession, hasRole } from '@/lib/auth';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string; sessionId: string } }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  try {
+    const isAdmin = hasRole(session.role, 'ADMIN');
+    const membership = await prisma.campaignMember.findUnique({
+      where: { campaignId_userId: { campaignId: params.id, userId: session.userId } },
+    });
+    if (!isAdmin && !membership) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+    const log = await prisma.sessionLog.findUnique({
+      where: { id: params.sessionId, campaignId: params.id },
+    });
+    if (!log) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+    return NextResponse.json({ session: log });
+  } catch (e) {
+    console.error('GET /campaigns/[id]/sessions/[sessionId] error', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string; sessionId: string } }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  try {
+    const isAdmin = hasRole(session.role, 'ADMIN');
+    const membership = await prisma.campaignMember.findUnique({
+      where: { campaignId_userId: { campaignId: params.id, userId: session.userId } },
+    });
+    if (!isAdmin && membership?.role !== 'DM') {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
+    await prisma.sessionLog.delete({ where: { id: params.sessionId, campaignId: params.id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /campaigns/[id]/sessions/[sessionId] error', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+  }
+}
