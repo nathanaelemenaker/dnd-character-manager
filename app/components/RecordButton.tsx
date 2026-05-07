@@ -8,6 +8,7 @@ interface RecordButtonProps {
   campaignId: string;
   sessionId: string;
   initialStatus: string | null;
+  initialError?: string | null;
   onTranscriptReady: (transcript: string) => void;
 }
 
@@ -20,7 +21,7 @@ function formatDuration(seconds: number): string {
 }
 
 export default function RecordButton({
-  campaignId, sessionId, initialStatus, onTranscriptReady,
+  campaignId, sessionId, initialStatus, initialError, onTranscriptReady,
 }: RecordButtonProps) {
   const [state, setState] = useState<RecordState>(() => {
     if (initialStatus === 'pending' || initialStatus === 'processing') return initialStatus;
@@ -28,7 +29,7 @@ export default function RecordButton({
     if (initialStatus === 'error') return 'error';
     return 'idle';
   });
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState(initialStatus === 'error' ? (initialError ?? '') : '');
   const [elapsed, setElapsed] = useState(0);
   const [uploadProgress, setUploadProgress] = useState('');
 

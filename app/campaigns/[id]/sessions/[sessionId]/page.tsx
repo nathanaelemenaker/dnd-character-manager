@@ -206,6 +206,7 @@ export default function SessionLogPage() {
             campaignId={params.id}
             sessionId={params.sessionId}
             initialStatus={log.transcriptStatus}
+            initialError={log.transcriptError}
             onTranscriptReady={transcript => {
               setLog(prev => prev ? { ...prev, rawTranscript: transcript, transcriptStatus: 'done' } : prev);
             }}
