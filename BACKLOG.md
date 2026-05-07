@@ -43,27 +43,14 @@ Characters exist in isolation — no way to group them into a campaign or share 
 
 ---
 
-### 3. 🧹 Full Repository Audit & Cleanup
+### ✅ 3. 🧹 Full Repository Audit & Cleanup (2026-05-06)
 
-**Problem**
-The codebase has accumulated dead code, misplaced files, and stale imports from multiple rounds of refactoring.
-
-**Scope**
-- Dead files to remove:
-  - `app/components/Navbar.tsx` — replaced by `TopNav.tsx`
-  - `app/components/NavbarServer.tsx` — replaced by `TopNav.tsx`
-  - `app/lib/auth/session.ts` — replaced by `app/lib/auth.ts`
-  - `app/api/dev/*` routes — development-only, should not exist in production
-  - `app/api/characters/CharactersClient.tsx` — client component misplaced inside `api/` directory
-  - Redis service in `docker-compose.yml` — confirmed unused, now removed
-- Stale imports to fix:
-  - Anything referencing `@/lib/auth/session`, `@/lib/db`, `@/lib/auth/roles`, or old `Navbar` components
-- Legacy workarounds to remove:
-  - `ensureUserExists()` in `app/api/characters/route.ts` — can create ghost users with placeholder `!` passwords
-- General pass:
-  - Remove all TODO/FIXME comments that have been resolved
-  - Confirm `@eaDir` Synology metadata files are gitignored
-  - Confirm `public/uploads/` is gitignored
+Audit confirmed the codebase was already clean from prior refactors. One remaining fix applied:
+- Fixed stale `@/lib/db` import in `scripts/sync-open5e.ts` and `scripts/sync-dnd5eapi.ts` → corrected to `@/lib/prisma`
+- All dead files (Navbar.tsx, NavbarServer.tsx, auth/session.ts, api/dev/*, CharactersClient.tsx) already removed
+- `ensureUserExists()` already removed
+- `@eaDir/` and `public/uploads/` confirmed in .gitignore
+- No TODO/FIXME comments remaining
 
 ---
 

@@ -1,5 +1,5 @@
 
-  import { prisma } from '@/lib/db';
+  import { prisma } from '@/lib/prisma';
 
   async function sync5eApiSpells2014() {
     const listRes = await fetch('https://www.dnd5eapi.co/api/2014/spells');

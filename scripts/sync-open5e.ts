@@ -1,5 +1,5 @@
 
-import { prisma } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 
 async function syncOpen5eSpells2014() {
   let url: string | null = 'https://api.open5e.com/spells/?document__slug=5e-srd&limit=100';
