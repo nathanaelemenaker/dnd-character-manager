@@ -30,6 +30,36 @@ export async function GET(
   }
 }
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string; sessionId: string } }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  try {
+    const isAdmin = hasRole(session.role, 'ADMIN');
+    const membership = await prisma.campaignMember.findUnique({
+      where: { campaignId_userId: { campaignId: params.id, userId: session.userId } },
+    });
+    if (!isAdmin && !membership) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+    const body = await req.json();
+    const data: Record<string, unknown> = {};
+    if (typeof body.rawTranscript === 'string') data.rawTranscript = body.rawTranscript;
+    if (typeof body.title === 'string') data.title = body.title || null;
+
+    const log = await prisma.sessionLog.update({
+      where: { id: params.sessionId, campaignId: params.id },
+      data,
+    });
+    return NextResponse.json({ session: log });
+  } catch (e) {
+    console.error('PATCH /campaigns/[id]/sessions/[sessionId] error', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+  }
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string; sessionId: string } }

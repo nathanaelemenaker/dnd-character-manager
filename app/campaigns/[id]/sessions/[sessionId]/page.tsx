@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import RecordButton from '@/components/RecordButton';
 
 interface CombatEncounter {
   title: string;
@@ -36,6 +37,8 @@ interface SessionLog {
   title: string | null;
   rawTranscript: string;
   generatedOutput: GeneratedOutput | null;
+  transcriptStatus: string | null;
+  transcriptError: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,6 +62,9 @@ export default function SessionLogPage() {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
   const [showRaw, setShowRaw] = useState(false);
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [draftTranscript, setDraftTranscript] = useState('');
+  const [savingTranscript, setSavingTranscript] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
@@ -123,6 +129,8 @@ export default function SessionLogPage() {
   }
 
   const output = log.generatedOutput as GeneratedOutput | null;
+  const hasTranscript = log.rawTranscript.trim().length > 0;
+  const isTranscribing = log.transcriptStatus === 'pending' || log.transcriptStatus === 'processing';
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
@@ -165,8 +173,9 @@ export default function SessionLogPage() {
           <button
             className="ink-btn"
             onClick={handleGenerate}
-            disabled={generating}
-            style={{ fontSize: 12 }}
+            disabled={generating || isTranscribing || (!hasTranscript && !output)}
+            title={!hasTranscript && !output ? 'Add a transcript first' : undefined}
+            style={{ fontSize: 12, opacity: (!hasTranscript && !output) ? 0.5 : 1 }}
           >
             {generating ? '⏳ Generating…' : output ? '↺ Regenerate' : '✦ Generate Log'}
           </button>
@@ -187,7 +196,24 @@ export default function SessionLogPage() {
         </div>
       )}
 
-      {!output && !generating && (
+      {/* Recording section — always shown unless transcript is ready and log is generated */}
+      {!output && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>
+            Step 1 — Record or Paste Transcript
+          </div>
+          <RecordButton
+            campaignId={params.id}
+            sessionId={params.sessionId}
+            initialStatus={log.transcriptStatus}
+            onTranscriptReady={transcript => {
+              setLog(prev => prev ? { ...prev, rawTranscript: transcript, transcriptStatus: 'done' } : prev);
+            }}
+          />
+        </div>
+      )}
+
+      {!output && !generating && !isTranscribing && (
         <div
           style={{
             textAlign: 'center',
@@ -200,14 +226,18 @@ export default function SessionLogPage() {
         >
           <div style={{ fontSize: 28, marginBottom: 10 }}>📜</div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, marginBottom: 8, color: 'var(--ink)' }}>
-            Log Not Yet Generated
+            {hasTranscript ? 'Ready to Generate' : 'No Transcript Yet'}
           </div>
           <div style={{ fontSize: 13, fontStyle: 'italic', marginBottom: 16 }}>
-            Click "✦ Generate Log" to have Claude analyze the transcript and create the session chronicle.
+            {hasTranscript
+              ? 'Click "✦ Generate Log" to have Claude analyze the transcript and create the session chronicle.'
+              : 'Record your session audio above, or paste a transcript using the toggle below.'}
           </div>
-          <button className="ink-btn" onClick={handleGenerate}>
-            ✦ Generate Log
-          </button>
+          {hasTranscript && (
+            <button className="ink-btn" onClick={handleGenerate}>
+              ✦ Generate Log
+            </button>
+          )}
         </div>
       )}
 
@@ -480,33 +510,119 @@ export default function SessionLogPage() {
 
       {/* Raw Transcript toggle */}
       <div style={{ marginTop: 28, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
-        <button
-          className="ink-btn ghost"
-          style={{ fontSize: 11 }}
-          onClick={() => setShowRaw(v => !v)}
-        >
-          {showRaw ? '▲ Hide Raw Transcript' : '▼ Show Raw Transcript'}
-        </button>
-        {showRaw && (
-          <pre
-            style={{
-              marginTop: 12,
-              background: 'var(--parchment-dark)',
-              border: '1px solid var(--border-light)',
-              borderRadius: 4,
-              padding: '14px 16px',
-              fontSize: 12,
-              fontFamily: 'var(--font-body)',
-              color: 'var(--ink-light)',
-              lineHeight: 1.7,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              maxHeight: 400,
-              overflowY: 'auto',
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="ink-btn ghost"
+            style={{ fontSize: 11 }}
+            onClick={() => {
+              if (!showRaw) {
+                setDraftTranscript(log.rawTranscript);
+                setEditingTranscript(false);
+              }
+              setShowRaw(v => !v);
             }}
           >
-            {log.rawTranscript}
-          </pre>
+            {showRaw ? '▲ Hide Transcript' : '▼ Show / Edit Transcript'}
+          </button>
+          {!log.rawTranscript.trim() && !showRaw && (
+            <span style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
+              No transcript yet — paste one here or use Record Audio above
+            </span>
+          )}
+        </div>
+        {showRaw && (
+          <div style={{ marginTop: 12 }}>
+            {!editingTranscript ? (
+              <>
+                {log.rawTranscript.trim() ? (
+                  <pre
+                    style={{
+                      background: 'var(--parchment-dark)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: 4,
+                      padding: '14px 16px',
+                      fontSize: 12,
+                      fontFamily: 'var(--font-body)',
+                      color: 'var(--ink-light)',
+                      lineHeight: 1.7,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: 400,
+                      overflowY: 'auto',
+                      margin: 0,
+                    }}
+                  >
+                    {log.rawTranscript}
+                  </pre>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--border)', fontStyle: 'italic', padding: '12px 0' }}>
+                    No transcript yet.
+                  </div>
+                )}
+                <button
+                  className="ink-btn ghost"
+                  style={{ fontSize: 11, marginTop: 8 }}
+                  onClick={() => { setDraftTranscript(log.rawTranscript); setEditingTranscript(true); }}
+                >
+                  ✏ {log.rawTranscript.trim() ? 'Edit Transcript' : 'Paste Transcript'}
+                </button>
+              </>
+            ) : (
+              <>
+                <textarea
+                  style={{
+                    width: '100%',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 4,
+                    padding: '12px 14px',
+                    fontSize: 13,
+                    fontFamily: 'var(--font-body)',
+                    lineHeight: 1.7,
+                    resize: 'vertical',
+                    minHeight: 200,
+                    boxSizing: 'border-box',
+                  }}
+                  value={draftTranscript}
+                  onChange={e => setDraftTranscript(e.target.value)}
+                  placeholder="Paste session notes, chat logs, bullet points, or free-form descriptions here..."
+                  autoFocus
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button
+                    className="ink-btn"
+                    style={{ fontSize: 11 }}
+                    disabled={savingTranscript}
+                    onClick={async () => {
+                      setSavingTranscript(true);
+                      try {
+                        const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ rawTranscript: draftTranscript }),
+                        });
+                        if (!res.ok) throw new Error('Save failed');
+                        setLog(prev => prev ? { ...prev, rawTranscript: draftTranscript } : prev);
+                        setEditingTranscript(false);
+                      } catch {
+                        // keep editing
+                      } finally {
+                        setSavingTranscript(false);
+                      }
+                    }}
+                  >
+                    {savingTranscript ? 'Saving…' : 'Save Transcript'}
+                  </button>
+                  <button
+                    className="ink-btn ghost"
+                    style={{ fontSize: 11 }}
+                    onClick={() => setEditingTranscript(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>

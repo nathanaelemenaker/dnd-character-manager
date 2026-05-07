@@ -44,8 +44,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const body = await req.json().catch(() => null);
     const rawTranscript = (body?.rawTranscript ?? '').toString().trim();
-    if (!rawTranscript) return NextResponse.json({ error: 'rawTranscript required' }, { status: 400 });
-
     const title = (body?.title ?? '').toString().trim() || null;
 
     const lastSession = await prisma.sessionLog.findFirst({

@@ -13,12 +13,21 @@ services:
       timeout: 5s
       retries: 10
 
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    restart: unless-stopped
+    volumes:
+      - whisper-cache:/root/.cache/huggingface
+    # Not exposed externally — only the web container calls it
+    # Model is downloaded on first use and cached in the whisper-cache volume
+
   web:
     image: node:20-slim
     working_dir: /app
     env_file: .env
     volumes:
       - .:/app
+      - audio-uploads:/opt/dnd-sheet/audio
     ports:
       - "3000:3000"
     depends_on:
@@ -42,3 +51,5 @@ services:
 
 volumes:
   dbdata:
+  whisper-cache:
+  audio-uploads:

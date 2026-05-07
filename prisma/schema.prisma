@@ -304,15 +304,18 @@ model CampaignMember {
 }
 
 model SessionLog {
-  id              String    @id @default(cuid())
-  campaignId      String
-  campaign        Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  sessionNumber   Int
-  title           String?
-  rawTranscript   String
-  generatedOutput Json?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  campaignId       String
+  campaign         Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sessionNumber    Int
+  title            String?
+  rawTranscript    String    @default("")
+  generatedOutput  Json?
+  transcriptStatus String?
+  transcriptError  String?
+  audioPath        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([campaignId, sessionNumber])
 }

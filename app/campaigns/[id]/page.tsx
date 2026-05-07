@@ -92,7 +92,6 @@ export default function CampaignDetailPage() {
 
   async function handleNewSession(e: React.FormEvent) {
     e.preventDefault();
-    if (!transcript.trim()) return;
     setSubmitting(true);
     setSubmitError('');
     try {
@@ -224,9 +223,9 @@ export default function CampaignDetailPage() {
               />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <div className="field-label">Raw Session Transcript *</div>
+              <div className="field-label">Session Transcript (optional)</div>
               <div style={{ fontSize: 11, color: 'var(--border)', marginBottom: 6, fontStyle: 'italic' }}>
-                Paste your raw session notes or transcript. Claude will analyze and structure it into a summary, combat log, and party status.
+                Paste notes or a transcript now, or leave blank and record audio on the session page. Claude generates the log after you provide a transcript.
               </div>
               <textarea
                 style={{
@@ -237,23 +236,23 @@ export default function CampaignDetailPage() {
                   fontFamily: 'var(--font-body)',
                   fontSize: 13,
                   resize: 'vertical',
-                  minHeight: 200,
+                  minHeight: 120,
                   lineHeight: 1.6,
                 }}
                 value={transcript}
                 onChange={e => setTranscript(e.target.value)}
-                placeholder="Paste session notes, chat logs, bullet points, or free-form descriptions here. The more detail, the better the output..."
+                placeholder="Paste session notes, chat logs, bullet points… or leave blank to record audio instead."
               />
             </div>
             {submitError && (
               <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 10 }}>{submitError}</div>
             )}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <button type="submit" className="ink-btn" disabled={submitting || !transcript.trim()}>
-                {submitting ? 'Saving…' : 'Save & Generate Log →'}
+              <button type="submit" className="ink-btn" disabled={submitting}>
+                {submitting ? 'Saving…' : 'Create Session →'}
               </button>
               <span style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
-                Claude will generate the structured log after saving
+                {transcript.trim() ? 'You can generate the log immediately on the next page' : 'You can record audio or paste a transcript on the next page'}
               </span>
             </div>
           </form>
