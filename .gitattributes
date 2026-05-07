@@ -1,0 +1,15 @@
+# Normalize line endings: LF in repo, platform-native on checkout
+* text=auto
+
+# Force LF for files that run on Linux (Docker/NAS)
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+.env.example text eol=lf
+
+# Binary files — no line ending conversion
+*.webp binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
