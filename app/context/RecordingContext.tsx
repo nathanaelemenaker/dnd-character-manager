@@ -45,6 +45,24 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Warn before tab close / refresh when recording or uploading
+  useEffect(() => {
+    const shouldWarn = (
+      recordingState === 'recording' ||
+      recordingState === 'paused' ||
+      recordingState === 'uploading'
+    );
+    if (!shouldWarn) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [recordingState]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
