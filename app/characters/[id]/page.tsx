@@ -21,7 +21,7 @@ export default async function CharacterDetailPage({
       race: true, background: true, alignment: true, xp: true,
       ac: true, speed: true, hpCurrent: true, hpMax: true, hpTemp: true,
       inspiration: true, portrait: true,
-      currency: true, bio: true, deathSaves: true,
+      currency: true, bio: true, deathSaves: true, conditions: true,
       updatedAt: true,
     },
   });
@@ -57,6 +57,7 @@ export default async function CharacterDetailPage({
 
   return (
     <CharacterSheetClient
+      userRole={session.role}
       character={{
         id: character.id, name: character.name, level: character.level,
         ruleset: character.ruleset as Ruleset,
@@ -70,6 +71,7 @@ export default async function CharacterDetailPage({
         currency: character.currency as Record<string, number>,
         bio: character.bio as Record<string, string>,
         deathSaves: character.deathSaves as { successes: number; failures: number },
+        conditions: (character.conditions as string[]) ?? [],
       }}
       initialAbilities={abilities}
       initialSkills={Object.fromEntries(skillRows.map((r) => [r.skillName, r.proficiency]))}

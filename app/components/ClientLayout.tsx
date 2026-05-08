@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { RecordingProvider } from '@/context/RecordingContext';
 import FloatingRecordingBar from './FloatingRecordingBar';
 
@@ -14,6 +15,13 @@ const themeScript = `
 `;
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
+  // Register service worker for PWA / offline support
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {/* silently ignore */});
+    }
+  }, []);
+
   return (
     <>
       {/* Apply saved theme before first paint to prevent flash */}

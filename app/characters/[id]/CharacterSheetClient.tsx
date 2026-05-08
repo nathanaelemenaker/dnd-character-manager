@@ -26,6 +26,7 @@ export interface CharacterProp {
   currency: Record<string, number>;
   bio: Record<string, string>;
   deathSaves: { successes: number; failures: number };
+  conditions?: string[];
   updatedAt?: string;
 }
 
@@ -132,7 +133,7 @@ function buildInitialState(
     skills, saves, spellSlots: slots, spells, inventory, features,
     currency: c.currency,
     bio: c.bio,
-    conditions: [],
+    conditions: c.conditions ?? [],
     _updatedAt: c.updatedAt ?? new Date().toISOString(),
   };
 }
@@ -194,6 +195,7 @@ function useDebounced<T>(fn: (val: T) => Promise<unknown> | void, delay: number)
 export default function CharacterSheetClient({
   character, initialAbilities, initialSkills, initialSaves,
   initialClasses, initialSpells, initialSlots, initialInventory, initialFeatures,
+  userRole,
 }: {
   character: CharacterProp;
   initialAbilities: Record<AbilityKey, number>;
@@ -204,6 +206,7 @@ export default function CharacterSheetClient({
   initialSlots: SpellSlot[];
   initialInventory: InventoryItem[];
   initialFeatures: Feature[];
+  userRole?: string;
 }) {
   const router = useRouter();
   const cid = character.id;
@@ -341,10 +344,11 @@ export default function CharacterSheetClient({
     if (keys.some(k => ['currency'].includes(k))) return saveMetaCurrency(payload);
     return saveMetaBio(payload);
   }, [saveMetaHp, saveMetaCombat, saveMetaBio, saveMetaCurrency, saveMetaDs]);
-  const saveAbil   = useDebounced((data: unknown) => api('/abilities', 'PUT', { abilities: data }), 600);
-  const saveSkills = useDebounced((data: unknown) => api('/skills', 'PUT', { skills: data }), 600);
-  const saveSaves  = useDebounced((data: unknown) => api('/saves', 'PUT', { saves: data }), 600);
-  const saveSlots  = useDebounced((data: unknown) => api('/spells', 'PUT', { slots: data }), 600);
+  const saveAbil      = useDebounced((data: unknown) => api('/abilities', 'PUT', { abilities: data }), 600);
+  const saveSkills    = useDebounced((data: unknown) => api('/skills', 'PUT', { skills: data }), 600);
+  const saveSaves     = useDebounced((data: unknown) => api('/saves', 'PUT', { saves: data }), 600);
+  const saveSlots     = useDebounced((data: unknown) => api('/spells', 'PUT', { slots: data }), 600);
+  const saveConditions= useDebounced((data: unknown) => api('/conditions', 'PUT', { conditions: data }), 500);
 
   // ── Dispatchers with side-effects ─────────────────────────────────────────
 
@@ -587,8 +591,14 @@ export default function CharacterSheetClient({
   // ── Render ────────────────────────────────────────────────────────────────
   const toggleCondition = useCallback((c: string) => {
     dispatch({ type: 'TOGGLE_CONDITION', condition: c });
-  }, []);
+    // Persist to DB — read current state via ref then compute next
+    const current = stateRef.current.conditions;
+    const has = current.includes(c);
+    const next = has ? current.filter(x => x !== c) : [...current, c];
+    saveConditions(next);
+  }, [saveConditions]);
 
+  const isDM = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
   const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition };
 
   return (
@@ -630,9 +640,13 @@ export default function CharacterSheetClient({
       </div>
 
       <nav className={styles.nav}>
-        {['overview','abilities','combat','skills','spells','inventory','features','notes','campaigns','class guide','bio'].map((t) => (
+        {[
+          'overview','abilities','combat','skills','spells','inventory',
+          'features','notes','campaigns','party','class guide','bio',
+          ...(isDM ? ['monsters'] : []),
+        ].map((t) => (
           <button key={t} className={`${styles.navBtn} ${tab === t ? styles.navActive : ''}`} onClick={() => setTab(t)}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'monsters' ? '🐉 Monsters' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
@@ -661,15 +675,17 @@ export default function CharacterSheetClient({
       <div className={styles.content}>
         {tab === 'overview'    && <OverviewTab   {...tabProps} />}
         {tab === 'abilities'   && <AbilitiesTab  {...tabProps} setAbility={setAbility} />}
-        {tab === 'combat'      && <CombatTab     {...tabProps} />}
+        {tab === 'combat'      && <CombatTab     {...tabProps} saveMod={saveMod} toggleSave={toggleSave} />}
         {tab === 'skills'      && <SkillsTab     {...tabProps} />}
         {tab === 'spells'      && <SpellsTab     {...tabProps} />}
         {tab === 'inventory'   && <InventoryTab  {...tabProps} />}
         {tab === 'features'    && <FeaturesTab   {...tabProps} />}
         {tab === 'notes'       && <NotesTab characterId={cid} />}
         {tab === 'campaigns'   && <CampaignsTab characterId={cid} />}
+        {tab === 'party'       && <PartyTab />}
         {tab === 'bio'         && <BioTab        {...tabProps} />}
         {tab === 'class guide' && <ClassGuideTab classes={state.classes} currentLevel={state.level} saveClasses={saveClasses} features={state.features} addFeature={addFeature} race={state.race} />}
+        {tab === 'monsters' && isDM && <MonsterTab />}
       </div>
 
       {showLevelUp && (() => {
@@ -868,7 +884,7 @@ function ConditionTracker({ conditions, toggleCondition }: { conditions: string[
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, setShowLevelUp, conditions }: any) {
+function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, setShowLevelUp, conditions, skillMod }: any) {
   const init = mods['DEX'];
   return (
     <>
@@ -921,6 +937,25 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase' }}>{ab}</div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>{state.abilities[ab]}</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', background: 'var(--parchment-dark)', border: '1px solid var(--border-light)', borderRadius: 2, padding: '0 4px', marginTop: 2, display: 'inline-block' }}>{fmtMod(mods[ab])}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Passive Scores */}
+      <div className="panel">
+        <div className="panel-header" onClick={() => setTab('skills')} style={{ cursor: 'pointer' }}>Passive Scores <span style={{ marginLeft: 'auto' }}>›</span></div>
+        <div className="panel-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+            {[
+              { label: 'Passive Perception',   val: 10 + skillMod('Perception')   },
+              { label: 'Passive Insight',       val: 10 + skillMod('Insight')      },
+              { label: 'Passive Investigation', val: 10 + skillMod('Investigation') },
+            ].map(({ label, val }) => (
+              <div key={label} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>{val}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2, lineHeight: 1.3 }}>{label}</div>
               </div>
             ))}
           </div>
@@ -1295,7 +1330,7 @@ function ActiveStatBonuses({ state, mods, onApplyAC }: {
 }
 
 
-function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition }: any) {
+function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition, saveMod, toggleSave }: any) {
   return (
     <>
       <ActiveStatBonuses
@@ -1325,6 +1360,23 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>Prof. Bonus</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Saving Throw Summary */}
+      <div className="panel">
+        <div className="panel-header">Saving Throws</div>
+        <div className="panel-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+            {(['STR','DEX','CON','INT','WIS','CHA'] as const).map((ab) => (
+              <div key={ab} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', background: 'var(--parchment)', border: `1.5px solid ${state.saves[ab] ? 'var(--gold)' : 'var(--border-light)'}`, borderRadius: 4, cursor: 'pointer' }} onClick={() => toggleSave(ab)}>
+                <div className={`prof-pip ${state.saves[ab] ? 'proficient' : ''}`} />
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', flex: 1 }}>{ab}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: 'var(--red)' }}>{fmtMod(saveMod(ab))}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>Tap to toggle proficiency</div>
         </div>
       </div>
       <div className="panel">
@@ -1517,6 +1569,8 @@ function DiceRoller() {
 
 // ── Weapon Attack Panel ───────────────────────────────────────────────────────
 function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number> }) {
+  const [rolls, setRolls] = useState<Record<string, { atk: number | null; dmg: number | null; atkRaw: number | null; dmgRaw: number | null; dmgDie: number | null }>>({});
+
   const weapons = (state.inventory ?? []).filter((inv: any) => {
     const type = (inv.itemDef?.type ?? '').toLowerCase();
     const name = (inv.itemDef?.name ?? '').toLowerCase();
@@ -1539,6 +1593,13 @@ function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number>
     );
   }
 
+  function parseDamageDice(text: string | null): { die: number; count: number; type: string } | null {
+    if (!text) return null;
+    const m = text.match(/(\d+)d(\d+)(?:\s*[+\-]\s*\d+)?\s*(slashing|piercing|bludgeoning|fire|cold|lightning|acid|poison|necrotic|radiant|thunder|psychic|force)/i);
+    if (!m) return null;
+    return { count: parseInt(m[1]), die: parseInt(m[2]), type: m[3] };
+  }
+
   function parseDamage(text: string | null): string {
     if (!text) return '—';
     const m = text.match(/(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s*(slashing|piercing|bludgeoning|fire|cold|lightning|acid|poison|necrotic|radiant|thunder|psychic|force)/i);
@@ -1553,6 +1614,19 @@ function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number>
   function isFinesse(inv: any): boolean {
     const t = ((inv.itemDef?.text ?? '') + (inv.itemDef?.name ?? '')).toLowerCase();
     return t.includes('finesse') || t.includes('rapier') || t.includes('dagger') || t.includes('shortsword') || t.includes('whip');
+  }
+
+  function rollAttack(id: string, atkBonus: number) {
+    const raw = Math.floor(Math.random() * 20) + 1;
+    const total = raw + atkBonus;
+    setRolls(prev => ({ ...prev, [id]: { ...prev[id], atk: total, atkRaw: raw, dmg: prev[id]?.dmg ?? null, dmgRaw: prev[id]?.dmgRaw ?? null, dmgDie: prev[id]?.dmgDie ?? null } }));
+  }
+
+  function rollDamage(id: string, dieCount: number, die: number, dmgBonus: number) {
+    let raw = 0;
+    for (let i = 0; i < dieCount; i++) raw += Math.floor(Math.random() * die) + 1;
+    const total = raw + dmgBonus;
+    setRolls(prev => ({ ...prev, [id]: { ...prev[id], dmg: total, dmgRaw: raw, dmgDie: die, atk: prev[id]?.atk ?? null, atkRaw: prev[id]?.atkRaw ?? null } }));
   }
 
   return (
@@ -1570,33 +1644,78 @@ function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number>
           const atkBonus = primaryMod + prof;
           const dmgBonus = primaryMod;
           const damage = parseDamage(inv.itemDef?.text);
+          const damageDice = parseDamageDice(inv.itemDef?.text);
+          const r = rolls[inv.id];
+
+          // Nat 20 / nat 1 highlight colours
+          const isCrit = r?.atkRaw === 20;
+          const isFumble = r?.atkRaw === 1;
+          const atkBg = isCrit ? 'rgba(46,125,50,0.12)' : isFumble ? 'rgba(139,26,26,0.08)' : 'rgba(201,162,39,0.08)';
+          const atkBorder = isCrit ? '#2e7d32' : isFumble ? 'var(--red)' : 'var(--gold)';
 
           return (
-            <div key={inv.id} style={{ padding: '7px 0', borderBottom: '0.5px solid var(--parchment-dark)', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700 }}>{inv.itemDef.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
-                  {ranged ? 'Ranged (DEX)' : finesse ? `Finesse (${Math.max(strMod, dexMod) === strMod ? 'STR' : 'DEX'})` : 'Melee (STR)'}
-                  {inv.quantity > 1 ? ` · ×${inv.quantity}` : ''}
+            <div key={inv.id} style={{ padding: '8px 0', borderBottom: '0.5px solid var(--parchment-dark)' }}>
+              {/* Name row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700 }}>{inv.itemDef.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
+                    {ranged ? 'Ranged (DEX)' : finesse ? `Finesse (${Math.max(strMod, dexMod) === strMod ? 'STR' : 'DEX'})` : 'Melee (STR)'}
+                    {inv.quantity > 1 ? ` · ×${inv.quantity}` : ''}
+                  </div>
+                </div>
+                {/* Static modifiers */}
+                <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '3px 6px', minWidth: 44 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>{atkBonus >= 0 ? '+' : ''}{atkBonus}</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>Atk</div>
+                </div>
+                <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '3px 6px', minWidth: 72 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700 }}>
+                    {damage !== '—' ? damage.replace(/(\d+d\d+)/, `$1${dmgBonus >= 0 ? '+' : ''}${dmgBonus}`) : '—'}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>Dmg</div>
                 </div>
               </div>
-              <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '4px 8px', minWidth: 52 }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: atkBonus >= 0 ? 'var(--ink)' : 'var(--red)' }}>
-                  {atkBonus >= 0 ? '+' : ''}{atkBonus}
-                </div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>Attack</div>
-              </div>
-              <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '4px 8px', minWidth: 80 }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700 }}>
-                  {damage !== '—' ? damage.replace(/(\d+d\d+)/, `$1${dmgBonus >= 0 ? '+' : ''}${dmgBonus}`) : '—'}
-                </div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>Damage</div>
+              {/* Roll buttons */}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  className="ink-btn"
+                  style={{ fontSize: 11, padding: '4px 10px' }}
+                  onClick={() => rollAttack(inv.id, atkBonus)}
+                >
+                  🎲 Roll Attack
+                </button>
+                {damageDice && (
+                  <button
+                    className="ink-btn ghost"
+                    style={{ fontSize: 11, padding: '4px 10px' }}
+                    onClick={() => rollDamage(inv.id, damageDice.count, damageDice.die, dmgBonus)}
+                  >
+                    🎲 Roll Damage
+                  </button>
+                )}
+                {r && (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {r.atk !== null && (
+                      <div style={{ padding: '3px 10px', borderRadius: 4, background: atkBg, border: `1.5px solid ${atkBorder}`, textAlign: 'center' }}>
+                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: isCrit ? '#2e7d32' : isFumble ? 'var(--red)' : 'var(--ink)' }}>{r.atk}</div>
+                        <div style={{ fontSize: 9, color: 'var(--border)' }}>{isCrit ? '⭐ CRIT' : isFumble ? '💀 FAIL' : `d20: ${r.atkRaw}`}</div>
+                      </div>
+                    )}
+                    {r.dmg !== null && (
+                      <div style={{ padding: '3px 10px', borderRadius: 4, background: 'rgba(139,26,26,0.08)', border: '1.5px solid var(--red)', textAlign: 'center' }}>
+                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: 'var(--red)' }}>{r.dmg}</div>
+                        <div style={{ fontSize: 9, color: 'var(--border)' }}>dmg (raw {r.dmgRaw})</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
         <div style={{ marginTop: 6, fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>
-          Assumes proficiency. Adjust for non-proficient weapons. Finesse/ranged auto-detected.
+          Assumes proficiency. Finesse/ranged auto-detected.
         </div>
       </div>
     </div>
@@ -2179,22 +2298,53 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
           {Object.keys(byLevel).sort((a,b)=>Number(a)-Number(b)).map((lv) => (
             <div key={lv}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 1, margin: '8px 0 3px', textTransform: 'uppercase' }}>{lv === '0' ? 'Cantrips' : 'Level ' + lv + ' Spells'}</div>
-              {byLevel[Number(lv)].map((sp: Spell) => (
-                <div key={sp.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '5px 0', borderBottom: '0.5px solid var(--parchment-dark)' }}>
-                  {Number(lv) > 0 ? <div style={{ width: 10, height: 10, borderRadius: '50%', border: '1.5px solid var(--gold)', cursor: 'pointer', flexShrink: 0, marginTop: 3, background: sp.prepared ? 'var(--gold)' : 'var(--parchment)' }} onClick={() => sp.id && togglePrepared(sp.id)} /> : <div style={{ width: 10, height: 10, flexShrink: 0 }} />}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: expandedId === sp.id ? 'var(--gold)' : 'var(--ink)' }} onClick={() => setExpandedId(expandedId === sp.id ? null : (sp.id || null))}>{sp.name}</span>
-                      {sp.ritual && <span className="tag-badge tag-ritual">Ritual</span>}
-                      {sp.concentration && <span className="tag-badge tag-conc">Conc.</span>}
-                      {sp.school && <span className={`tag-badge tag-school school-${sp.school?.toLowerCase()}`}>{sp.school}</span>}
+              {byLevel[Number(lv)].map((sp: Spell) => {
+                const isExpanded = expandedId === sp.id;
+                // Parse damage from description
+                const dmgMatch = sp.desc?.match(/(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s*(slashing|piercing|bludgeoning|fire|cold|lightning|acid|poison|necrotic|radiant|thunder|psychic|force)/i);
+                const dmgText = dmgMatch ? dmgMatch[0] : null;
+
+                return (
+                  <div key={sp.id} style={{ borderBottom: '0.5px solid var(--parchment-dark)' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: '5px 0', cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : (sp.id || null))}>
+                      {Number(lv) > 0 ? <div style={{ width: 10, height: 10, borderRadius: '50%', border: '1.5px solid var(--gold)', cursor: 'pointer', flexShrink: 0, marginTop: 3, background: sp.prepared ? 'var(--gold)' : 'var(--parchment)' }} onClick={(e) => { e.stopPropagation(); sp.id && togglePrepared(sp.id); }} /> : <div style={{ width: 10, height: 10, flexShrink: 0 }} />}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, color: isExpanded ? 'var(--gold)' : 'var(--ink)' }}>{sp.name}</span>
+                          {sp.ritual && <span className="tag-badge tag-ritual">Ritual</span>}
+                          {sp.concentration && <span className="tag-badge tag-conc">Conc.</span>}
+                          {sp.school && <span className={`tag-badge tag-school school-${sp.school?.toLowerCase()}`}>{sp.school}</span>}
+                        </div>
+                        {!isExpanded && (sp.castingTime || sp.range || sp.duration) && (
+                          <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 1 }}>
+                            {[sp.castingTime && 'Cast: '+sp.castingTime, sp.range && 'Range: '+sp.range, sp.duration && 'Dur: '+sp.duration].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--border)', padding: '0 4px', flexShrink: 0 }}>{isExpanded ? '▲' : '▼'}</div>
+                      <button onClick={(e) => { e.stopPropagation(); sp.id && removeSpell(sp.id); }} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer', padding: '0 4px', flexShrink: 0 }}>✕</button>
                     </div>
-                    {(sp.castingTime || sp.range || sp.duration) && <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 1 }}>{[sp.castingTime && 'Cast: '+sp.castingTime, sp.range && 'Range: '+sp.range, sp.duration && 'Dur: '+sp.duration].filter(Boolean).join(' · ')}</div>}
-                    {expandedId === sp.id && sp.desc && <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5, marginTop: 4, padding: 6, background: 'var(--parchment)', border: '1px solid var(--border-light)', borderRadius: 3 }}>{sp.desc}</div>}
+                    {isExpanded && (
+                      <div style={{ margin: '0 0 8px 16px', padding: '8px 10px', background: 'var(--parchment-dark)', borderRadius: 4, border: '1px solid var(--border-light)' }}>
+                        {/* Combat quick-reference row */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
+                          {sp.castingTime && <div><div className="dp-label">Cast Time</div><div style={{ fontSize: 12, fontWeight: 600 }}>{sp.castingTime}</div></div>}
+                          {sp.range && <div><div className="dp-label">Range</div><div style={{ fontSize: 12, fontWeight: 600 }}>{sp.range}</div></div>}
+                          {sp.duration && <div><div className="dp-label">Duration</div><div style={{ fontSize: 12, fontWeight: 600 }}>{sp.duration}</div></div>}
+                          {sp.components && <div><div className="dp-label">Components</div><div style={{ fontSize: 12, fontWeight: 600 }}>{sp.components}</div></div>}
+                          {dmgText && <div><div className="dp-label">Damage</div><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--red)' }}>{dmgText}</div></div>}
+                        </div>
+                        {sp.concentration && (
+                          <div style={{ fontSize: 11, color: '#1a6b9a', fontWeight: 600, marginBottom: 4 }}>⚠ Requires Concentration</div>
+                        )}
+                        {sp.desc && (
+                          <div style={{ fontSize: 11, color: 'var(--ink-light)', lineHeight: 1.55, maxHeight: 140, overflowY: 'auto' }}>{sp.desc}</div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <button onClick={() => sp.id && removeSpell(sp.id)} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer', padding: '0 4px', flexShrink: 0 }}>✕</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ))}
           {state.spells.length === 0 && <div className="empty-state">No spells known. Search above to add.</div>}
@@ -3264,5 +3414,259 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
         </div>
       </div>
     </>
+  );
+}
+
+// ── Party View ────────────────────────────────────────────────────────────────
+interface PartyMember {
+  userId: string; userName: string; role: string; isCurrentUser: boolean;
+  character: {
+    id: string; name: string; race: string; level: number;
+    hpCurrent: number; hpMax: number; hpTemp: number;
+    ac: number; portrait: string | null; conditions: string[]; classes: string;
+  };
+}
+interface PartyCampaign { id: string; name: string; members: PartyMember[]; }
+
+function PartyTab() {
+  const [campaigns, setCampaigns] = useState<PartyCampaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  async function load() {
+    try {
+      const r = await fetch('/api/party', { credentials: 'include' });
+      const d = await r.json();
+      setCampaigns(d.campaigns ?? []);
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [lastRefresh]);
+
+  // Auto-refresh every 30s
+  useEffect(() => {
+    const t = setInterval(() => setLastRefresh(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (loading) return <div className="empty-state" style={{ padding: 20 }}>Loading party…</div>;
+
+  if (campaigns.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--border)' }}>
+        <div style={{ fontSize: 28, marginBottom: 10 }}>⚔️</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, marginBottom: 8 }}>No party found</div>
+        <div style={{ fontSize: 12, fontStyle: 'italic', marginBottom: 16 }}>
+          Join a campaign to see your party members here. Characters must be linked to a campaign.
+        </div>
+        <a href="/campaigns" style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--gold)', textDecoration: 'none' }}>
+          → Go to Campaigns
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>Auto-refreshes every 30s</div>
+        <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={() => { setLoading(true); setLastRefresh(Date.now()); }}>↻ Refresh</button>
+      </div>
+      {campaigns.map(c => (
+        <div key={c.id} className="panel" style={{ marginBottom: 12 }}>
+          <div className="panel-header">{c.name}</div>
+          <div className="panel-body" style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {c.members.map(m => {
+              const ch = m.character;
+              const hpPct = Math.max(0, Math.min(100, Math.round((ch.hpCurrent / ch.hpMax) * 100)));
+              const hpColor = hpPct >= 50 ? '#2e7d32' : hpPct >= 25 ? 'var(--gold)' : 'var(--red)';
+              return (
+                <div key={m.userId} style={{
+                  padding: '8px 10px', borderRadius: 4,
+                  background: m.isCurrentUser ? 'rgba(201,162,39,0.08)' : 'var(--parchment)',
+                  border: `1.5px solid ${m.isCurrentUser ? 'var(--gold)' : 'var(--border-light)'}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/* Portrait */}
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', border: '1.5px solid var(--border-light)', background: 'var(--parchment-dark)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                      {ch.portrait ? <img src={ch.portrait} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🧝'}
+                    </div>
+                    {/* Name + class */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {ch.name}
+                        {m.isCurrentUser && <span style={{ fontSize: 9, color: 'var(--gold)', fontWeight: 400 }}>(you)</span>}
+                        {m.role === 'DM' && <span style={{ fontSize: 9, color: 'var(--border)', fontWeight: 400 }}>👑 DM</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>
+                        Lv {ch.level} {ch.race} {ch.classes}
+                      </div>
+                    </div>
+                    {/* AC */}
+                    <div style={{ textAlign: 'center', minWidth: 36 }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700 }}>{ch.ac}</div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>AC</div>
+                    </div>
+                    {/* HP */}
+                    <div style={{ textAlign: 'center', minWidth: 52 }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, color: hpColor }}>
+                        {ch.hpCurrent}{ch.hpTemp > 0 ? <span style={{ fontSize: 11, color: 'var(--gold)' }}>+{ch.hpTemp}</span> : ''}/{ch.hpMax}
+                      </div>
+                      <div style={{ height: 4, background: 'var(--parchment-dark)', borderRadius: 2, marginTop: 2, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${hpPct}%`, background: hpColor, borderRadius: 2, transition: 'width 0.3s' }} />
+                      </div>
+                    </div>
+                  </div>
+                  {/* Conditions */}
+                  {ch.conditions.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                      {ch.conditions.map((cond: string) => {
+                        const cd = CONDITIONS.find(x => x.name === cond);
+                        return (
+                          <span key={cond} title={cd?.desc} style={{
+                            padding: '1px 7px', borderRadius: 3, fontSize: 9,
+                            fontFamily: 'var(--font-display)', fontWeight: 700,
+                            background: cd?.color ?? 'var(--red)', color: '#fff',
+                          }}>{cond}</span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Monster Lookup (DM only) ──────────────────────────────────────────────────
+function MonsterTab() {
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [monster, setMonster] = useState<any>(null);
+  const [error, setError] = useState('');
+
+  async function lookup() {
+    if (!query.trim()) return;
+    setLoading(true); setMonster(null); setError('');
+    try {
+      const r = await fetch('/api/srd/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'monster', name: query.trim() }),
+      });
+      if (r.status === 404) { setError(`"${query}" not found in official 5e sourcebooks.`); return; }
+      if (!r.ok) throw new Error('Lookup failed');
+      const d = await r.json();
+      setMonster(d.result);
+    } catch (e: any) {
+      setError(e?.message ?? 'Lookup failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const absKeys = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const;
+  const absMod = (v: number) => { const m = Math.floor((v - 10) / 2); return (m >= 0 ? '+' : '') + m; };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(201,162,39,0.06)', border: '1.5px solid var(--gold)', borderRadius: 4, fontSize: 11, color: 'var(--ink-light)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 16 }}>👑</span>
+        <span><strong>DM Only</strong> — This tab is not visible to players.</span>
+      </div>
+      <div className="panel">
+        <div className="panel-header">Monster / NPC Lookup</div>
+        <div className="panel-body">
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <input
+              type="text"
+              placeholder="e.g. Goblin, Adult Red Dragon, Bandit Captain…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && lookup()}
+              style={{ flex: 1 }}
+            />
+            <button className="ink-btn" onClick={lookup} disabled={loading || !query.trim()}>
+              {loading ? '⏳' : '✦ Look Up'}
+            </button>
+          </div>
+          {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8 }}>{error}</div>}
+          {monster && (
+            <div>
+              {/* Header */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>{monster.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic' }}>
+                  {monster.size} {monster.type} · CR {monster.cr}
+                  {monster.source ? ` · ${monster.source}` : ''}
+                </div>
+              </div>
+              {/* Key stats */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginBottom: 8 }}>
+                {[['AC', monster.ac], ['HP', monster.hp], ['Speed', monster.speed], ['CR', monster.cr]].map(([l, v]) => (
+                  <div key={l as string} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '4px 4px' }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700, wordBreak: 'break-all' }}>{v}</div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Ability scores */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 4, marginBottom: 8 }}>
+                {absKeys.map(ab => (
+                  <div key={ab} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1px solid var(--border-light)', borderRadius: 3, padding: '3px 2px' }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase' }}>{ab}</div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>{monster[ab]}</div>
+                    <div style={{ fontSize: 10, color: 'var(--border)' }}>{absMod(monster[ab] ?? 10)}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Extra stats */}
+              <div style={{ fontSize: 12, marginBottom: 8 }}>
+                {monster.saves && <div style={{ marginBottom: 3 }}><strong>Saves:</strong> {monster.saves}</div>}
+                {monster.skills && <div style={{ marginBottom: 3 }}><strong>Skills:</strong> {monster.skills}</div>}
+                {monster.senses && <div style={{ marginBottom: 3 }}><strong>Senses:</strong> {monster.senses}</div>}
+                {monster.languages && <div style={{ marginBottom: 3 }}><strong>Languages:</strong> {monster.languages}</div>}
+                {monster.damageResistances && <div style={{ marginBottom: 3 }}><strong>Resistances:</strong> {monster.damageResistances}</div>}
+                {monster.damageImmunities && <div style={{ marginBottom: 3 }}><strong>Immunities:</strong> {monster.damageImmunities}</div>}
+                {monster.conditionImmunities && <div style={{ marginBottom: 3 }}><strong>Condition Immunities:</strong> {monster.conditionImmunities}</div>}
+              </div>
+              {/* Traits */}
+              {monster.traits && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Traits</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink-light)' }}>{monster.traits}</div>
+                </div>
+              )}
+              {/* Actions */}
+              {monster.actions && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Actions</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink-light)', whiteSpace: 'pre-wrap' }}>{monster.actions}</div>
+                </div>
+              )}
+              {/* Legendary Actions */}
+              {monster.legendaryActions && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>⭐ Legendary Actions</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink-light)', whiteSpace: 'pre-wrap' }}>{monster.legendaryActions}</div>
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 6, borderTop: '0.5px solid var(--parchment-dark)', paddingTop: 6 }}>
+                ✦ Sourced from Claude's D&D 5e knowledge. Always verify against your sourcebooks.
+              </div>
+            </div>
+          )}
+          {!monster && !error && !loading && (
+            <div className="empty-state">Enter a monster or NPC name to look up their stat block.</div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

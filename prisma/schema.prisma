@@ -62,6 +62,7 @@ model Character {
   currency   Json @default("{\"cp\":0,\"sp\":0,\"ep\":0,\"gp\":0,\"pp\":0}")
   bio        Json @default("{}")
   deathSaves Json @default("{\"successes\":0,\"failures\":0}")
+  conditions Json @default("[]")
 
   // ── Relations ──
   classes        CharacterClass[]

@@ -63,6 +63,36 @@ Return ONLY a valid JSON object with these exact fields — no markdown, no expl
 If you don't recognize this as an official D&D 5e feat or class feature, return: {"error": "not_found"}
 `.trim();
 
+const MONSTER_PROMPT = (name: string) => `
+You are a D&D 5e rules expert. Look up the monster or NPC "${name}" from any official D&D 5e
+sourcebook (Monster Manual, Volo's Guide, Mordenkainen's, Tasha's, etc.).
+
+Return ONLY a valid JSON object with these exact fields — no markdown, no explanation, just the JSON:
+{
+  "name": "exact monster name",
+  "type": "e.g. Undead, Humanoid, Beast, Dragon, Fiend, Aberration",
+  "size": "Tiny, Small, Medium, Large, Huge, or Gargantuan",
+  "cr": "challenge rating as string, e.g. 1/4 or 5",
+  "ac": 15,
+  "hp": "e.g. 45 (7d8 + 14)",
+  "speed": "e.g. 30 ft., fly 60 ft.",
+  "str": 16, "dex": 12, "con": 14, "int": 10, "wis": 11, "cha": 8,
+  "saves": "e.g. Con +4, Wis +2 or empty string",
+  "skills": "e.g. Perception +4, Stealth +3 or empty string",
+  "damageImmunities": "e.g. Fire, Poison or empty string",
+  "damageResistances": "e.g. Bludgeoning, Piercing from nonmagical attacks or empty string",
+  "conditionImmunities": "e.g. Charmed, Frightened or empty string",
+  "senses": "e.g. Darkvision 60 ft., passive Perception 14",
+  "languages": "e.g. Common, Draconic or —",
+  "actions": "full text of Actions section",
+  "traits": "full text of special traits/abilities",
+  "legendaryActions": "full text of legendary actions or empty string",
+  "source": "sourcebook and page, e.g. Monster Manual p. 317"
+}
+
+If you don't recognize this as an official D&D 5e monster or NPC, return: {"error": "not_found"}
+`.trim();
+
 const SUBCLASS_GUIDE_PROMPT = (className: string, subclassName: string, currentLevel: number) => `
 You are a D&D 5e rules expert. The player is a ${className} (${subclassName}) at level ${currentLevel}.
 
@@ -102,7 +132,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { type } = body;
 
-    const VALID_TYPES = ['spell', 'item', 'feat', 'subclass_guide', 'race_guide'];
+    const VALID_TYPES = ['spell', 'item', 'feat', 'monster', 'subclass_guide', 'race_guide'];
     if (!VALID_TYPES.includes(type)) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }
@@ -136,7 +166,11 @@ export async function POST(req: NextRequest) {
     const { name } = body;
     if (!name?.trim()) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
 
-    const prompt = type === 'spell' ? SPELL_PROMPT(name.trim()) : type === 'feat' ? FEAT_PROMPT(name.trim()) : ITEM_PROMPT(name.trim());
+    const prompt =
+      type === 'spell'   ? SPELL_PROMPT(name.trim()) :
+      type === 'feat'    ? FEAT_PROMPT(name.trim()) :
+      type === 'monster' ? MONSTER_PROMPT(name.trim()) :
+      ITEM_PROMPT(name.trim());
 
     const message = await client.messages.create({
       model: 'claude-opus-4-7',
