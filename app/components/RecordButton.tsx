@@ -126,21 +126,40 @@ export default function RecordButton({
   async function handleUpload() {
     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
     const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
-    setUploadProgress(`Uploading ${sizeMB} MB…`);
+    setUploadProgress(`0% — 0 of ${sizeMB} MB`);
 
     try {
       const form = new FormData();
       form.append('audio', blob, 'session.webm');
 
-      const res = await fetch(
-        `/api/campaigns/${campaignId}/sessions/${sessionId}/transcribe`,
-        { method: 'POST', body: form }
-      );
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/campaigns/${campaignId}/sessions/${sessionId}/transcribe`);
 
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error ?? `Upload failed (${res.status})`);
-      }
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            const loadedMB = (e.loaded / 1024 / 1024).toFixed(1);
+            setUploadProgress(`${pct}% — ${loadedMB} of ${sizeMB} MB`);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            try {
+              const d = JSON.parse(xhr.responseText);
+              reject(new Error(d.error ?? `Upload failed (${xhr.status})`));
+            } catch {
+              reject(new Error(`Upload failed (${xhr.status})`));
+            }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(form);
+      });
 
       setState('pending');
       setUploadProgress('');
@@ -229,16 +248,29 @@ export default function RecordButton({
   }
 
   if (state === 'uploading') {
+    const pct = uploadProgress ? parseInt(uploadProgress) : 0;
     return (
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '10px 14px', background: 'var(--parchment-dark)',
+        padding: '12px 14px', background: 'var(--parchment-dark)',
         border: '1.5px solid var(--border-light)', borderRadius: 5,
       }}>
-        <span style={{ fontSize: 16 }}>📤</span>
-        <span style={{ fontSize: 13, color: 'var(--ink)', fontStyle: 'italic' }}>
-          {uploadProgress || 'Preparing upload…'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 16 }}>📤</span>
+          <span style={{ fontSize: 13, color: 'var(--ink)', fontStyle: 'italic', flex: 1 }}>
+            {uploadProgress ? `Uploading… ${uploadProgress}` : 'Preparing upload…'}
+          </span>
+        </div>
+        <div style={{ background: 'var(--border-light)', borderRadius: 3, height: 6, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', borderRadius: 3,
+            background: 'var(--gold)',
+            width: `${pct}%`,
+            transition: 'width 0.3s ease',
+          }} />
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
+          Keep this page open until upload completes.
+        </div>
       </div>
     );
   }
