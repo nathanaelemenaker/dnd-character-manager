@@ -1438,10 +1438,13 @@ function SpellSlotValidator({ classes, spellSlots, addSlots, dismissedKeys, onDi
 function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest }: any) {
   const [searchQ, setSearchQ] = useState('');
   const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [dismissedSlotWarnings, setDismissedSlotWarnings] = useState<Set<string>>(new Set());
+  const [claudeLoading, setClaudeLoading] = useState(false);
+  const [claudeError, setClaudeError] = useState('');
 
   // Custom spell state
   const [showCustom, setShowCustom] = useState(false);
@@ -1471,7 +1474,7 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
 
   async function search() {
     if (!searchQ.trim()) return;
-    setSearching(true); setResults([]); setSelected(null);
+    setSearching(true); setResults([]); setSelected(null); setSearched(false); setClaudeError('');
     try {
       const r = await fetch(`/api/srd?type=spells&ruleset=${state.ruleset}&q=${encodeURIComponent(searchQ)}`);
       if (!r.ok) throw new Error(`Search failed: ${r.status}`);
@@ -1482,12 +1485,33 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
       setResults([]);
     }
     setSearching(false);
+    setSearched(true);
+  }
+
+  async function askClaude() {
+    if (!searchQ.trim()) return;
+    setClaudeLoading(true); setClaudeError(''); setSelected(null);
+    try {
+      const r = await fetch('/api/srd/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'spell', name: searchQ.trim() }),
+      });
+      if (r.status === 404) { setClaudeError(`Claude doesn't recognize "${searchQ}" as an official D&D 5e spell. Try the custom form below.`); return; }
+      if (!r.ok) throw new Error('Claude lookup failed');
+      const d = await r.json();
+      setSelected({ ...d.result, _source: 'claude' });
+    } catch (e: any) {
+      setClaudeError(e?.message ?? 'Claude lookup failed');
+    } finally {
+      setClaudeLoading(false);
+    }
   }
 
   async function handleAdd() {
     if (!selected) return;
     await addSpell({ ...selected, prepared: true });
-    setSelected(null); setResults([]); setSearchQ('');
+    setSelected(null); setResults([]); setSearchQ(''); setSearched(false);
   }
 
   const byLevel: Record<number, Spell[]> = {};
@@ -1534,15 +1558,44 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
               {results.map((sp, i) => (
                 <div key={i} className="result-item" onClick={() => setSelected(sp)}>
                   <div className="result-name">{sp.name}</div>
-                  <div className="result-meta">{sp.level === 0 ? 'Cantrip' : 'Level ' + sp.level} · {sp.school}</div>
+                  <div className="result-meta">{sp.level === 0 ? 'Cantrip' : 'Level ' + sp.level} · <span className={`school-${sp.school?.toLowerCase()}`}>{sp.school}</span></div>
                 </div>
               ))}
             </div>
           )}
+          {!selected && searched && !searching && results.length === 0 && (
+            <div style={{ padding: '10px 0' }}>
+              <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginBottom: 8 }}>
+                No results in SRD databases for "{searchQ}".
+              </div>
+              {claudeError ? (
+                <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8, lineHeight: 1.5 }}>{claudeError}</div>
+              ) : (
+                <button
+                  className="ink-btn"
+                  style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={askClaude}
+                  disabled={claudeLoading}
+                >
+                  {claudeLoading ? '⏳ Asking Claude…' : '✦ Ask Claude'}
+                </button>
+              )}
+              {claudeLoading && (
+                <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
+                  Claude is looking up "{searchQ}" from its D&D 5e knowledge…
+                </div>
+              )}
+            </div>
+          )}
           {selected && (
             <div className="detail-card">
+              {selected._source === 'claude' && (
+                <div style={{ fontSize: 10, color: 'var(--gold)', fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  ✦ SOURCE: CLAUDE — verify details before adding
+                </div>
+              )}
               <div className="detail-title">{selected.name}</div>
-              <div className="detail-subtitle">{selected.level === 0 ? 'Cantrip' : 'Level ' + selected.level} {selected.school}{selected.ritual ? ' [Ritual]' : ''}{selected.concentration ? ' [Conc.]' : ''}</div>
+              <div className="detail-subtitle">{selected.level === 0 ? 'Cantrip' : 'Level ' + selected.level} <span className={`school-${selected.school?.toLowerCase()}`}>{selected.school}</span>{selected.ritual ? ' [Ritual]' : ''}{selected.concentration ? ' [Conc.]' : ''}</div>
               <div className="detail-props">
                 {selected.castingTime && <div className="detail-prop"><div className="dp-label">Casting Time</div><div className="dp-val">{selected.castingTime}</div></div>}
                 {selected.range && <div className="detail-prop"><div className="dp-label">Range</div><div className="dp-val">{selected.range}</div></div>}
@@ -1677,7 +1730,7 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
                       <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: expandedId === sp.id ? 'var(--gold)' : 'var(--ink)' }} onClick={() => setExpandedId(expandedId === sp.id ? null : (sp.id || null))}>{sp.name}</span>
                       {sp.ritual && <span className="tag-badge tag-ritual">Ritual</span>}
                       {sp.concentration && <span className="tag-badge tag-conc">Conc.</span>}
-                      {sp.school && <span className="tag-badge tag-school">{sp.school}</span>}
+                      {sp.school && <span className={`tag-badge tag-school school-${sp.school?.toLowerCase()}`}>{sp.school}</span>}
                     </div>
                     {(sp.castingTime || sp.range || sp.duration) && <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 1 }}>{[sp.castingTime && 'Cast: '+sp.castingTime, sp.range && 'Range: '+sp.range, sp.duration && 'Dur: '+sp.duration].filter(Boolean).join(' · ')}</div>}
                     {expandedId === sp.id && sp.desc && <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5, marginTop: 4, padding: 6, background: 'var(--parchment)', border: '1px solid var(--border-light)', borderRadius: 3 }}>{sp.desc}</div>}

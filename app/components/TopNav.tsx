@@ -18,6 +18,22 @@ export default function TopNav() {
   const [me, setMe] = useState<MeResponse>(null);
   const [loading, setLoading] = useState(true);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+
+  // Initialize theme from localStorage on mount
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('dnd-theme') : null;
+    const isDark = saved === 'dark';
+    setDarkMode(isDark);
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  }, []);
+
+  function toggleTheme() {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
+    localStorage.setItem('dnd-theme', next ? 'dark' : 'light');
+  }
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +64,7 @@ export default function TopNav() {
         gap: '0.5rem',
         position: 'sticky',
         top: me?.isImpersonating ? '2.5rem' : 0,
-        background: '#fff',
+        background: 'var(--parchment)',
         zIndex: 10,
         minWidth: 0,
       }}>
@@ -62,6 +78,25 @@ export default function TopNav() {
         </nav>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          {/* Dark mode toggle */}
+          <button
+            onClick={toggleTheme}
+            title={darkMode ? 'Switch to light mode' : 'Switch to candlelight mode'}
+            style={{
+              background: 'none',
+              border: '1px solid var(--border-light)',
+              borderRadius: 6,
+              padding: '3px 7px',
+              cursor: 'pointer',
+              fontSize: 14,
+              lineHeight: 1,
+              color: 'var(--ink)',
+              flexShrink: 0,
+            }}
+          >
+            {darkMode ? '☀' : '🕯'}
+          </button>
+
           {!loading && isAdmin && (
             <>
               {/* Role badge — always visible, clicking opens admin panel */}
