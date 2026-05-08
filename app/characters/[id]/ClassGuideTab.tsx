@@ -4,9 +4,10 @@
 import { useEffect, useState } from 'react';
 
 interface CharClass { name: string; subclass: string; level: number; hitDie: number; }
-interface Feature { name: string; index: string; desc: string; }
+interface Feature { id?: string; name: string; source: string; desc: string; }
+interface SrdFeature { name: string; index: string; desc: string; }
 interface LevelEntry {
-  level: number; profBonus: number; features: Feature[];
+  level: number; profBonus: number; features: SrdFeature[];
   spellSlots: { cantripsKnown: number; spellsKnown: number | null; slots: number[] } | null;
   abilityScoreImprovement: boolean; subclassUnlock: boolean;
 }
@@ -40,15 +41,47 @@ function SlotPips({ slots }: { slots: number[] }) {
   );
 }
 
-export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { classes: CharClass[]; currentLevel: number; saveClasses: (c: CharClass[]) => void }) {
+// ── Claude subclass/race lookup ───────────────────────────────────────────────
+async function claudeLookup(prompt: string): Promise<string> {
+  const r = await fetch('/api/srd/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'guide', prompt }),
+  });
+  if (!r.ok) throw new Error('Claude lookup failed');
+  const d = await r.json();
+  return d.result?.text ?? '';
+}
+
+export default function ClassGuideTab({
+  classes, currentLevel, saveClasses, features, addFeature, race,
+}: {
+  classes: CharClass[];
+  currentLevel: number;
+  saveClasses: (c: CharClass[]) => void;
+  features: Feature[];
+  addFeature: (f: { name: string; source: string; desc: string }) => Promise<void>;
+  race: string;
+}) {
   const [data, setData] = useState<Record<string, ClassData>>({});
   const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
   const [errorMap, setErrorMap] = useState<Record<string, string>>({});
   const [activeClass, setActiveClass] = useState(classes[0]?.name ?? '');
-  const [viewMode, setViewMode] = useState<'progression'|'subclasses'>('progression');
+  const [viewMode, setViewMode] = useState<'progression'|'subclasses'|'missing'|'race'>('progression');
   const [expandedLevel, setExpandedLevel] = useState<string|null>(null);
   const [expandedFeature, setExpandedFeature] = useState<string|null>(null);
   const [expandedSub, setExpandedSub] = useState<string|null>(null);
+  const [addingFeature, setAddingFeature] = useState<string|null>(null);
+
+  // Claude subclass features
+  const [subclaudeText, setSubclaudeText] = useState<Record<string, string>>({});
+  const [subclaudeLoading, setSubclaudeLoading] = useState<Record<string, boolean>>({});
+  const [subclaudeError, setSubclaudeError] = useState<Record<string, string>>({});
+
+  // Claude race features
+  const [raceText, setRaceText] = useState('');
+  const [raceLoading, setRaceLoading] = useState(false);
+  const [raceError, setRaceError] = useState('');
 
   useEffect(() => {
     if (!activeClass || data[activeClass] || loadingMap[activeClass]) return;
@@ -72,10 +105,91 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
     setLoadingMap((p) => ({ ...p, [name]: false }));
   }
 
+  async function loadSubclaudeFeatures(cls: CharClass) {
+    const key = `${cls.name}-${cls.subclass}`;
+    if (subclaudeText[key] || subclaudeLoading[key]) return;
+    setSubclaudeLoading(p => ({ ...p, [key]: true }));
+    try {
+      const r = await fetch('/api/srd/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'subclass_guide',
+          className: cls.name,
+          subclassName: cls.subclass,
+          currentLevel: cls.level,
+        }),
+      });
+      if (!r.ok) throw new Error('Claude lookup failed');
+      const d = await r.json();
+      setSubclaudeText(p => ({ ...p, [key]: d.result?.text ?? '' }));
+    } catch (e: any) {
+      setSubclaudeError(p => ({ ...p, [key]: e?.message ?? 'Lookup failed' }));
+    }
+    setSubclaudeLoading(p => ({ ...p, [key]: false }));
+  }
+
+  async function loadRaceFeatures() {
+    if (raceText || raceLoading || !race) return;
+    setRaceLoading(true);
+    try {
+      const r = await fetch('/api/srd/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'race_guide', raceName: race }),
+      });
+      if (!r.ok) throw new Error('Claude lookup failed');
+      const d = await r.json();
+      setRaceText(d.result?.text ?? '');
+    } catch (e: any) {
+      setRaceError(e?.message ?? 'Lookup failed');
+    }
+    setRaceLoading(false);
+  }
+
+  async function handleAddFeature(f: SrdFeature, source: string) {
+    const id = f.index;
+    setAddingFeature(id);
+    await addFeature({ name: f.name, source, desc: f.desc || '' });
+    setAddingFeature(null);
+  }
+
   const cls = classes.find((c) => c.name === activeClass);
   const cd = data[activeClass];
   const isLoading = loadingMap[activeClass];
   const err = errorMap[activeClass];
+
+  // Compute missing features: SRD features at or below current level that aren't in features tab
+  const missingFeatures: Array<{ feature: SrdFeature; level: number; source: string }> = [];
+  if (cd && cls) {
+    for (const lv of cd.levels) {
+      if (lv.level > cls.level) break;
+      for (const f of lv.features) {
+        const alreadyHas = features.some(
+          (ef) => ef.name.toLowerCase() === f.name.toLowerCase() ||
+                  ef.name.toLowerCase().includes(f.name.toLowerCase())
+        );
+        if (!alreadyHas) {
+          missingFeatures.push({ feature: f, level: lv.level, source: `${activeClass} ${lv.level}` });
+        }
+      }
+    }
+  }
+
+  // Next level features
+  const nextLevelFeatures = cd && cls
+    ? (cd.levels.find(lv => lv.level === cls.level + 1)?.features ?? [])
+    : [];
+  const nextLevelASI = cd && cls
+    ? (cd.levels.find(lv => lv.level === cls.level + 1)?.abilityScoreImprovement ?? false)
+    : false;
+
+  const MODES: Array<{ id: 'progression'|'subclasses'|'missing'|'race'; label: string }> = [
+    { id: 'progression', label: 'Progression' },
+    { id: 'subclasses',  label: cd?.subclassLabel ?? 'Subclass' },
+    { id: 'missing',     label: `Missing (${missingFeatures.length})` },
+    { id: 'race',        label: race ? `${race} Traits` : 'Race Traits' },
+  ];
 
   return (
     <>
@@ -97,16 +211,16 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
       )}
 
       {/* View toggle */}
-      <div style={{ display:'flex', gap:6, marginBottom:10 }}>
-        {(['progression','subclasses'] as const).map((m) => (
-          <button key={m} onClick={() => setViewMode(m)}
+      <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
+        {MODES.map((m) => (
+          <button key={m.id} onClick={() => { setViewMode(m.id); if (m.id === 'race') loadRaceFeatures(); }}
             style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, letterSpacing:0.5,
               padding:'4px 12px', borderRadius:3, cursor:'pointer', textTransform:'uppercase',
-              background: viewMode===m ? 'var(--ink)' : 'transparent',
-              color: viewMode===m ? 'var(--gold-light)' : 'var(--border)',
-              border: viewMode===m ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)',
+              background: viewMode===m.id ? 'var(--ink)' : 'transparent',
+              color: viewMode===m.id ? 'var(--gold-light)' : 'var(--border)',
+              border: viewMode===m.id ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)',
             }}>
-            {m==='progression' ? 'Level Progression' : cd?.subclassLabel ?? 'Subclasses'}
+            {m.label}
           </button>
         ))}
       </div>
@@ -114,9 +228,24 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
       {isLoading && <div style={{ textAlign:'center', padding:24, fontStyle:'italic', color:'var(--border)' }}>Loading {activeClass} data…</div>}
       {err && <div style={{ padding:12, background:'#fff0f0', border:'1px solid #ffcccc', borderRadius:4, fontSize:13, color:'var(--red)' }}>{err} — Class may not be in SRD.</div>}
 
+      {/* ── What's Next callout ── */}
+      {cd && cls && cls.level < 20 && nextLevelFeatures.length > 0 && viewMode === 'progression' && (
+        <div style={{ padding:'8px 12px', marginBottom:10, background:'rgba(46,125,50,0.07)', border:'1.5px solid rgba(46,125,50,0.4)', borderRadius:4 }}>
+          <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'#2e7d32', letterSpacing:1, marginBottom:4 }}>
+            ▲ UP NEXT — Level {cls.level + 1}
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:'2px 8px' }}>
+            {nextLevelFeatures.map(f => (
+              <span key={f.index} style={{ fontFamily:'var(--font-display)', fontSize:11, fontWeight:600, color:'var(--ink)' }}>{f.name}</span>
+            ))}
+            {nextLevelASI && <span style={{ fontFamily:'var(--font-display)', fontSize:11, fontWeight:600, color:'var(--gold)' }}>Ability Score Improvement</span>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Progression ── */}
       {cd && viewMode==='progression' && (
         <>
-          {/* Overview */}
           <div style={panel}>
             <div style={ph}>Class Overview</div>
             <div style={{ ...pb, display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
@@ -129,7 +258,6 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
             </div>
           </div>
 
-          {/* Level table */}
           <div style={panel}>
             <div style={ph}>
               Level Progression
@@ -171,19 +299,33 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
                     {expandedLevel===key && (
                       <div style={{ padding:'0 8px 10px 42px' }}>
                         {lv.spellSlots && <SlotPips slots={lv.spellSlots.slots} />}
-                        {lv.features.map((f) => (
-                          <div key={f.index} style={{ marginTop:6 }}>
-                            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                              <span style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</span>
-                              {f.desc && <button onClick={() => setExpandedFeature(expandedFeature===f.index?null:f.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedFeature===f.index?'hide':'details'}</button>}
-                            </div>
-                            {expandedFeature===f.index && (
-                              <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>
-                                {f.desc || 'See Player\'s Handbook for full description.'}
+                        {lv.features.map((f) => {
+                          const alreadyHas = features.some(ef => ef.name.toLowerCase() === f.name.toLowerCase() || ef.name.toLowerCase().includes(f.name.toLowerCase()));
+                          return (
+                            <div key={f.index} style={{ marginTop:6 }}>
+                              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
+                                <span style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</span>
+                                <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                                  {f.desc && <button onClick={() => setExpandedFeature(expandedFeature===f.index?null:f.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedFeature===f.index?'hide':'details'}</button>}
+                                  {lv.level <= (cls?.level ?? 0) && (
+                                    <button
+                                      onClick={() => handleAddFeature(f, `${activeClass} ${lv.level}`)}
+                                      disabled={alreadyHas || addingFeature === f.index}
+                                      style={{ fontSize:10, color: alreadyHas ? 'var(--border)' : 'var(--gold)', background:'none', border:`1px solid ${alreadyHas ? 'var(--border-light)' : 'var(--gold)'}`, borderRadius:2, padding:'1px 6px', cursor: alreadyHas ? 'default' : 'pointer', fontFamily:'var(--font-display)', fontWeight:700, opacity: alreadyHas ? 0.5 : 1 }}
+                                    >
+                                      {alreadyHas ? '✓ Added' : addingFeature === f.index ? '…' : '+ Add'}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        ))}
+                              {expandedFeature===f.index && (
+                                <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>
+                                  {f.desc || 'See Player\'s Handbook for full description.'}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                         {lv.abilityScoreImprovement && <div style={{ marginTop:6, fontSize:12, color:'var(--border)', fontStyle:'italic' }}>Increase one ability score by 2, or two by 1 (max 20).</div>}
                         {lv.subclassUnlock && <div style={{ marginTop:6, fontSize:12, color:'#2e7d32', fontStyle:'italic' }}>You choose your {cd.subclassLabel} at this level.</div>}
                       </div>
@@ -196,6 +338,55 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
         </>
       )}
 
+      {/* ── Missing Features ── */}
+      {viewMode === 'missing' && (
+        <div style={panel}>
+          <div style={ph}>
+            Missing Features
+            <span style={{ fontSize:10, color:'#c8b99a', fontWeight:400 }}>{missingFeatures.length} not yet in your Features tab</span>
+          </div>
+          <div style={pb}>
+            {!cd && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic' }}>Loading class data…</div>}
+            {cd && missingFeatures.length === 0 && (
+              <div style={{ textAlign:'center', padding:'16px 0' }}>
+                <div style={{ fontSize:22, marginBottom:6 }}>✓</div>
+                <div style={{ fontFamily:'var(--font-display)', fontSize:13, color:'#2e7d32' }}>All features accounted for!</div>
+                <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', marginTop:4 }}>Every SRD feature for your current level is in your Features tab.</div>
+              </div>
+            )}
+            {missingFeatures.map(({ feature: f, source }) => {
+              return (
+                <div key={f.index} style={{ padding:'7px 0', borderBottom:'0.5px solid var(--parchment-dark)' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+                    <div>
+                      <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</div>
+                      <div style={{ fontSize:10, color:'var(--border)', fontStyle:'italic' }}>{source}</div>
+                    </div>
+                    <button
+                      onClick={() => handleAddFeature(f, source)}
+                      disabled={addingFeature === f.index}
+                      className="ink-btn"
+                      style={{ fontSize:11, padding:'4px 10px' }}
+                    >
+                      {addingFeature === f.index ? '…' : '+ Add to Character'}
+                    </button>
+                  </div>
+                  {f.desc && (
+                    <div style={{ fontSize:11, color:'var(--ink-light)', lineHeight:1.5, marginTop:4 }}>
+                      {f.desc.slice(0, 180)}{f.desc.length > 180 ? '…' : ''}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ marginTop:10, fontSize:11, color:'var(--border)', fontStyle:'italic', lineHeight:1.5 }}>
+              Note: This compares SRD feature names against your Features tab. Subclass features and non-SRD features won't appear here — use the Subclass tab + Claude lookup for those.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Subclasses ── */}
       {cd && viewMode==='subclasses' && (
         <div style={panel}>
           <div style={ph}>{cd.subclassLabel} Options — Unlocks at Level {cd.subclassLevel}</div>
@@ -205,21 +396,52 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
                 <strong style={{ fontFamily:'var(--font-display)' }}>Your {cd.subclassLabel}:</strong> {cls.subclass}
               </div>
             )}
+
+            {/* Claude subclass feature lookup for non-SRD subclasses */}
+            {cls?.subclass && (() => {
+              const isInSrd = cd.subclasses.some(sc => sc.name === cls.subclass);
+              if (isInSrd) return null;
+              const key = `${cls.name}-${cls.subclass}`;
+              const text = subclaudeText[key];
+              const loading = subclaudeLoading[key];
+              const error = subclaudeError[key];
+              return (
+                <div style={{ marginBottom:12, padding:'10px 12px', background:'rgba(201,162,39,0.06)', border:'1.5px solid var(--gold)', borderRadius:4 }}>
+                  <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--gold)', letterSpacing:1, marginBottom:6 }}>
+                    ✦ {cls.subclass} — NOT IN SRD
+                  </div>
+                  {!text && !loading && !error && (
+                    <>
+                      <div style={{ fontSize:11, color:'var(--border)', fontStyle:'italic', marginBottom:8, lineHeight:1.5 }}>
+                        This subclass isn't in the SRD database. Claude can look up the feature progression for your current level.
+                      </div>
+                      <button className="ink-btn" style={{ fontSize:12 }} onClick={() => loadSubclaudeFeatures(cls)}>
+                        ✦ Look Up {cls.subclass} Features
+                      </button>
+                    </>
+                  )}
+                  {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic' }}>⏳ Claude is looking up {cls.subclass} features…</div>}
+                  {error && <div style={{ fontSize:12, color:'var(--red)' }}>{error}</div>}
+                  {text && (
+                    <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{text}</div>
+                  )}
+                </div>
+              );
+            })()}
+
             {(() => {
-              // Check if player's chosen subclass is in the SRD list
               const chosenIsInSrd = cls?.subclass && cd.subclasses.some(sc => sc.name === cls.subclass);
               const hasCustomChoice = cls?.subclass && !chosenIsInSrd;
 
               if (!cd.subclasses.length) {
                 return (
                   <div style={{ fontStyle:'italic', color:'var(--border)', fontSize:12, lineHeight:1.6 }}>
-                    Subclass options are not included in the SRD. Use the notes section below to record your {cd.subclassLabel} details.
+                    Subclass options are not included in the SRD. Use the Claude lookup above or the notes section below to record your {cd.subclassLabel} details.
                   </div>
                 );
               }
 
               if (hasCustomChoice) {
-                // Player chose a non-SRD subclass — show SRD list collapsed as reference only
                 return (
                   <details style={{ marginBottom:8 }}>
                     <summary style={{ fontSize:11, color:'var(--border)', cursor:'pointer', fontStyle:'italic', userSelect:'none' }}>
@@ -242,7 +464,6 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
                 );
               }
 
-              // Normal case: show full SRD list
               return (
                 <>
                   {cd.subclasses.map((sc) => (
@@ -264,8 +485,42 @@ export default function ClassGuideTab({ classes, currentLevel, saveClasses }: { 
             })()}
           </div>
 
-          {/* Custom subclass notes — always shown so player can paste wikidot content */}
           <CustomSubclassNotes cls={cls} saveClasses={saveClasses} classes={classes} />
+        </div>
+      )}
+
+      {/* ── Race Traits ── */}
+      {viewMode === 'race' && (
+        <div style={panel}>
+          <div style={ph}>
+            {race || 'Race'} Racial Traits
+          </div>
+          <div style={pb}>
+            {!race && (
+              <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic' }}>
+                No race set. Update your race in the Bio tab first.
+              </div>
+            )}
+            {race && !raceText && !raceLoading && !raceError && (
+              <div style={{ textAlign:'center', padding:'12px 0' }}>
+                <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', marginBottom:10 }}>
+                  Racial traits for {race} are not in the SRD database. Claude can look them up.
+                </div>
+                <button className="ink-btn" style={{ fontSize:12 }} onClick={loadRaceFeatures}>
+                  ✦ Look Up {race} Traits
+                </button>
+              </div>
+            )}
+            {raceLoading && (
+              <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', padding:'12px 0', textAlign:'center' }}>
+                ⏳ Claude is looking up {race} racial traits…
+              </div>
+            )}
+            {raceError && <div style={{ fontSize:12, color:'var(--red)' }}>{raceError}</div>}
+            {raceText && (
+              <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{raceText}</div>
+            )}
+          </div>
         </div>
       )}
     </>
@@ -298,7 +553,7 @@ function CustomSubclassNotes({ cls, saveClasses, classes }: {
   const hasNotes = !!(cls as any)?.subclassNotes;
 
   return (
-    <div style={{ marginTop: 12, padding: 10, background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4 }}>
+    <div style={{ margin: '0 10px 10px', padding: 10, background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', letterSpacing: 1 }}>
           {cls.subclass ? cls.subclass : 'Custom Subclass'} Notes
@@ -314,17 +569,11 @@ function CustomSubclassNotes({ cls, saveClasses, classes }: {
           {(cls as any).subclassNotes}
         </div>
       )}
-
       {!editing && !hasNotes && !cls.subclass && (
-        <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic' }}>
-          No subclass chosen yet. Choose one via Bio → Classes or the Level Up guide.
-        </div>
+        <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic' }}>No subclass chosen yet.</div>
       )}
-
       {!editing && !hasNotes && cls.subclass && (
-        <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic' }}>
-          No notes yet. Click "+ add notes" to paste in details from dnd5e.wikidot.com.
-        </div>
+        <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic' }}>No notes yet. Click "+ add notes" to paste in details.</div>
       )}
 
       {editing && (
@@ -336,21 +585,13 @@ function CustomSubclassNotes({ cls, saveClasses, classes }: {
               placeholder="e.g. Path of the Totem Warrior" />
           </div>
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginBottom: 3 }}>
-              Notes / Description
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginBottom: 4 }}>
-              Paste from dnd5e.wikidot.com or type your own notes. This is saved to your character.
-            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginBottom: 3 }}>Notes / Description</div>
             <textarea value={notesVal} onChange={(e) => setNotesVal(e.target.value)}
               rows={8} style={{ width: '100%', resize: 'vertical', fontFamily: 'var(--font-body)', fontSize: 12, padding: '6px 8px', lineHeight: 1.5 }}
-              placeholder={"Paste subclass description here...\n\nFor example, from wikidot:\nPath of the Totem Warrior\n\nThe Path of the Totem Warrior is a spiritual journey...\n\nLevel 3 - Spirit Seeker:\nYou gain the ability to cast Beast Sense and Speak with Animals as rituals...\n\nLevel 3 - Totem Spirit (Bear):\nWhile raging, you have resistance to all damage except psychic..."}
-            />
+              placeholder="Paste subclass description here..." />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="ink-btn" onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Notes'}
-            </button>
+            <button className="ink-btn" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save Notes'}</button>
             <button className="ink-btn ghost" onClick={() => setEditing(false)}>Cancel</button>
           </div>
         </div>

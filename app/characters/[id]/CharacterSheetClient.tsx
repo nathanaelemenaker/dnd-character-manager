@@ -669,7 +669,7 @@ export default function CharacterSheetClient({
         {tab === 'notes'       && <NotesTab characterId={cid} />}
         {tab === 'campaigns'   && <CampaignsTab characterId={cid} />}
         {tab === 'bio'         && <BioTab        {...tabProps} />}
-        {tab === 'class guide' && <ClassGuideTab classes={state.classes} currentLevel={state.level} saveClasses={saveClasses} />}
+        {tab === 'class guide' && <ClassGuideTab classes={state.classes} currentLevel={state.level} saveClasses={saveClasses} features={state.features} addFeature={addFeature} race={state.race} />}
       </div>
 
       {showLevelUp && (() => {
@@ -724,6 +724,78 @@ function HPBlock({ state, adjustHP, toggleDS, hpDelta, setHpDelta, hpPct, dispat
             {[0,1,2].map((i) => <div key={i} className={`ds-pip ${kind} ${i < (kind === 'success' ? state.deathSaves.successes : state.deathSaves.failures) ? 'filled' : ''}`} onClick={() => toggleDS(kind, i)} />)}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Short Rest Panel ─────────────────────────────────────────────────────────
+function ShortRestPanel({ state, adjustHP, shortRest, longRest }: { state: any; adjustHP: (delta: number) => void; shortRest: () => void; longRest: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [rolls, setRolls] = useState<number[]>([]);
+
+  function rollHitDie(hitDie: number) {
+    const r = Math.floor(Math.random() * hitDie) + 1;
+    setRolls(prev => [...prev, r]);
+  }
+
+  function applyHealing() {
+    const conMod = Math.floor(((state.abilities?.CON ?? 10) - 10) / 2);
+    const totalRolled = rolls.reduce((a, b) => a + b, 0);
+    const healing = rolls.length > 0 ? totalRolled + conMod * rolls.length : 0;
+    if (healing > 0) adjustHP(healing);
+    shortRest();
+    setRolls([]);
+    setOpen(false);
+  }
+
+  const conMod = Math.floor(((state.abilities?.CON ?? 10) - 10) / 2);
+  const totalHealing = rolls.reduce((a, b) => a + b + conMod, 0);
+
+  if (!open) {
+    return (
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="ink-btn ghost" style={{ fontSize: 12 }} onClick={() => setOpen(true)}>🌤 Short Rest</button>
+        <button className="ink-btn" style={{ fontSize: 12 }} onClick={longRest}>🌙 Long Rest</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '10px 12px', background: 'rgba(201,162,39,0.06)', border: '1.5px solid var(--gold)', borderRadius: 4 }}>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: 'var(--gold)', letterSpacing: 1, marginBottom: 8 }}>SHORT REST — Spend Hit Dice</div>
+      <div style={{ fontSize: 11, color: 'var(--border)', marginBottom: 8 }}>
+        CON modifier: {conMod >= 0 ? '+' : ''}{conMod} · added per die rolled
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {state.classes.map((c: any) => (
+          <button
+            key={c.name}
+            className="ink-btn"
+            style={{ fontSize: 12 }}
+            onClick={() => rollHitDie(c.hitDie)}
+          >
+            Roll d{c.hitDie} ({c.name})
+          </button>
+        ))}
+      </div>
+      {rolls.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 4 }}>
+            {rolls.map((r, i) => (
+              <span key={i} style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, background: 'var(--parchment)', border: '1px solid var(--border-light)', padding: '2px 8px', borderRadius: 3 }}>{r}</span>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink)', fontStyle: 'italic' }}>
+            Total healing: +{totalHealing} HP {conMod !== 0 ? `(rolls + ${conMod} CON/die)` : ''}
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        <button className="ink-btn" style={{ fontSize: 12 }} onClick={applyHealing}>
+          {rolls.length > 0 ? `Apply +${totalHealing} HP & Rest` : 'Rest (no healing)'}
+        </button>
+        <button className="ink-btn ghost" style={{ fontSize: 12 }} onClick={() => { setOpen(false); setRolls([]); }}>Cancel</button>
       </div>
     </div>
   );
@@ -1259,9 +1331,8 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
         <div className="panel-header">Hit Points</div>
         <div className="panel-body">
           <HPBlock state={state} dispatch={dispatch} adjustHP={adjustHP} toggleDS={toggleDS} hpDelta={hpDelta} setHpDelta={setHpDelta} hpPct={hpPct} saveMeta={saveMeta} />
-          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <button className="ink-btn" onClick={shortRest}>Short Rest</button>
-            <button className="ink-btn" onClick={longRest}>Long Rest</button>
+          <div style={{ marginTop: 10 }}>
+            <ShortRestPanel state={state} adjustHP={adjustHP} shortRest={shortRest} longRest={longRest} />
           </div>
         </div>
       </div>
@@ -1276,8 +1347,10 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
           ))}
         </div>
       </div>
+      <WeaponPanel state={state} mods={mods} />
       <ConditionTracker conditions={conditions ?? []} toggleCondition={toggleCondition} />
       <InitiativeTracker />
+      <DiceRoller />
     </>
   );
 }
@@ -1358,6 +1431,173 @@ function InitiativeTracker() {
           <button className="ink-btn" style={{ fontSize: 12 }} onClick={add}>+ Add</button>
         </div>
         {sorted.length === 0 && <div className="empty-state" style={{ marginTop: 8 }}>Add combatants to track initiative order</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Dice Roller ──────────────────────────────────────────────────────────────
+function DiceRoller() {
+  const DICE = [4, 6, 8, 10, 12, 20, 100];
+  const [modifier, setModifier] = useState(0);
+  const [lastRoll, setLastRoll] = useState<{ die: number; roll: number; mod: number; total: number } | null>(null);
+  const [history, setHistory] = useState<Array<{ die: number; roll: number; mod: number; total: number }>>([]);
+
+  function roll(die: number) {
+    const r = Math.floor(Math.random() * die) + 1;
+    const total = r + modifier;
+    const entry = { die, roll: r, mod: modifier, total };
+    setLastRoll(entry);
+    setHistory(prev => [entry, ...prev].slice(0, 8));
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Dice Roller</div>
+      <div className="panel-body">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+          {DICE.map(d => (
+            <button
+              key={d}
+              onClick={() => roll(d)}
+              style={{
+                width: 44, height: 44, borderRadius: 6, cursor: 'pointer',
+                fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
+                background: d === 20 ? 'var(--ink)' : 'var(--parchment)',
+                color: d === 20 ? 'var(--gold-light)' : 'var(--ink)',
+                border: `1.5px solid ${d === 20 ? 'var(--gold)' : 'var(--border-light)'}`,
+                transition: 'transform 0.1s',
+              }}
+              onMouseDown={e => (e.currentTarget.style.transform = 'scale(0.92)')}
+              onMouseUp={e => (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              d{d}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div className="field-label" style={{ marginBottom: 0 }}>Modifier</div>
+          <button onClick={() => setModifier(m => m - 1)} style={{ width: 26, height: 26, borderRadius: 3, border: '1px solid var(--border-light)', background: 'var(--parchment)', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>−</button>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, minWidth: 28, textAlign: 'center' }}>
+            {modifier >= 0 ? '+' : ''}{modifier}
+          </span>
+          <button onClick={() => setModifier(m => m + 1)} style={{ width: 26, height: 26, borderRadius: 3, border: '1px solid var(--border-light)', background: 'var(--parchment)', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>+</button>
+          <button onClick={() => setModifier(0)} style={{ fontSize: 10, color: 'var(--border)', background: 'none', border: 'none', cursor: 'pointer', fontStyle: 'italic' }}>reset</button>
+        </div>
+        {lastRoll && (
+          <div style={{
+            padding: '8px 12px', borderRadius: 4, marginBottom: 8, textAlign: 'center',
+            background: lastRoll.roll === lastRoll.die ? 'rgba(46,125,50,0.10)' : lastRoll.roll === 1 ? 'rgba(139,26,26,0.08)' : 'rgba(201,162,39,0.08)',
+            border: `1.5px solid ${lastRoll.roll === lastRoll.die ? '#2e7d32' : lastRoll.roll === 1 ? 'var(--red)' : 'var(--gold)'}`,
+          }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--border)', marginBottom: 2 }}>
+              d{lastRoll.die}{lastRoll.mod !== 0 ? (lastRoll.mod > 0 ? ' + ' + lastRoll.mod : ' − ' + Math.abs(lastRoll.mod)) : ''}
+              {lastRoll.roll === lastRoll.die && ' — NATURAL MAX! 🎉'}
+              {lastRoll.roll === 1 && lastRoll.die === 20 && ' — CRITICAL FAIL 💀'}
+            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 700, lineHeight: 1, color: lastRoll.roll === lastRoll.die ? '#2e7d32' : lastRoll.roll === 1 ? 'var(--red)' : 'var(--ink)' }}>
+              {lastRoll.total}
+            </div>
+            {lastRoll.mod !== 0 && <div style={{ fontSize: 10, color: 'var(--border)', marginTop: 2 }}>rolled {lastRoll.roll} {lastRoll.mod >= 0 ? '+' : ''} {lastRoll.mod}</div>}
+          </div>
+        )}
+        {history.length > 1 && (
+          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+            {history.slice(1).map((h, i) => (
+              <span key={i} style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: 'var(--border)', background: 'var(--parchment-dark)', padding: '1px 6px', borderRadius: 2 }}>
+                d{h.die}: {h.total}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Weapon Attack Panel ───────────────────────────────────────────────────────
+function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number> }) {
+  const weapons = (state.inventory ?? []).filter((inv: any) => {
+    const type = (inv.itemDef?.type ?? '').toLowerCase();
+    const name = (inv.itemDef?.name ?? '').toLowerCase();
+    return type.includes('weapon') || type === 'sword' || type === 'axe' || type === 'bow' ||
+      name.includes('sword') || name.includes('bow') || name.includes('axe') ||
+      name.includes('staff') || name.includes('dagger') || name.includes('spear') ||
+      name.includes('club') || name.includes('mace') || name.includes('crossbow') ||
+      name.includes('hammer') || name.includes('rapier') || name.includes('lance') ||
+      name.includes('pike') || name.includes('halberd') || name.includes('maul');
+  });
+
+  if (weapons.length === 0) {
+    return (
+      <div className="panel">
+        <div className="panel-header">Weapons & Attacks</div>
+        <div className="panel-body">
+          <div className="empty-state">No weapons in inventory. Add weapons via the Inventory tab.</div>
+        </div>
+      </div>
+    );
+  }
+
+  function parseDamage(text: string | null): string {
+    if (!text) return '—';
+    const m = text.match(/(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s*(slashing|piercing|bludgeoning|fire|cold|lightning|acid|poison|necrotic|radiant|thunder|psychic|force)/i);
+    return m ? m[0] : '—';
+  }
+
+  function isRanged(inv: any): boolean {
+    const t = (inv.itemDef?.type ?? inv.itemDef?.name ?? '').toLowerCase();
+    return t.includes('ranged') || t.includes('bow') || t.includes('crossbow') || t.includes('dart') || t.includes('sling');
+  }
+
+  function isFinesse(inv: any): boolean {
+    const t = ((inv.itemDef?.text ?? '') + (inv.itemDef?.name ?? '')).toLowerCase();
+    return t.includes('finesse') || t.includes('rapier') || t.includes('dagger') || t.includes('shortsword') || t.includes('whip');
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Weapons & Attacks</div>
+      <div className="panel-body">
+        {weapons.map((inv: any) => {
+          const ranged = isRanged(inv);
+          const finesse = isFinesse(inv);
+          const strMod = mods['STR'] ?? 0;
+          const dexMod = mods['DEX'] ?? 0;
+          const prof = state.proficiencyBonus ?? 2;
+
+          const primaryMod = ranged ? dexMod : finesse ? Math.max(strMod, dexMod) : strMod;
+          const atkBonus = primaryMod + prof;
+          const dmgBonus = primaryMod;
+          const damage = parseDamage(inv.itemDef?.text);
+
+          return (
+            <div key={inv.id} style={{ padding: '7px 0', borderBottom: '0.5px solid var(--parchment-dark)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700 }}>{inv.itemDef.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
+                  {ranged ? 'Ranged (DEX)' : finesse ? `Finesse (${Math.max(strMod, dexMod) === strMod ? 'STR' : 'DEX'})` : 'Melee (STR)'}
+                  {inv.quantity > 1 ? ` · ×${inv.quantity}` : ''}
+                </div>
+              </div>
+              <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '4px 8px', minWidth: 52 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: atkBonus >= 0 ? 'var(--ink)' : 'var(--red)' }}>
+                  {atkBonus >= 0 ? '+' : ''}{atkBonus}
+                </div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>Attack</div>
+              </div>
+              <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '4px 8px', minWidth: 80 }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700 }}>
+                  {damage !== '—' ? damage.replace(/(\d+d\d+)/, `$1${dmgBonus >= 0 ? '+' : ''}${dmgBonus}`) : '—'}
+                </div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, color: 'var(--border)', textTransform: 'uppercase' }}>Damage</div>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>
+          Assumes proficiency. Adjust for non-proficient weapons. Finesse/ranged auto-detected.
+        </div>
       </div>
     </div>
   );

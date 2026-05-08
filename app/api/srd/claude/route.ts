@@ -63,16 +63,78 @@ Return ONLY a valid JSON object with these exact fields — no markdown, no expl
 If you don't recognize this as an official D&D 5e feat or class feature, return: {"error": "not_found"}
 `.trim();
 
+const SUBCLASS_GUIDE_PROMPT = (className: string, subclassName: string, currentLevel: number) => `
+You are a D&D 5e rules expert. The player is a ${className} (${subclassName}) at level ${currentLevel}.
+
+List all subclass features they have received so far (levels 1 through ${currentLevel}), plus what
+they will gain at future levels up to level 20. For each feature, give its level, name, and a clear
+description of what it does mechanically.
+
+Format your response as plain text (no JSON, no markdown headers), like this:
+Level 3 — [Feature Name]
+[Description of what it does]
+
+Level 6 — [Feature Name]
+[Description]
+
+...and so on. Be concise but complete. Include all features up through level 20.
+`.trim();
+
+const RACE_GUIDE_PROMPT = (raceName: string) => `
+You are a D&D 5e rules expert. List all racial traits for a ${raceName} character from any official
+D&D 5e sourcebook (PHB, Mordenkainen's, Volo's Guide, etc.).
+
+Format your response as plain text (no JSON, no markdown headers), like this:
+[Trait Name]
+[Description of what it does mechanically]
+
+[Next Trait Name]
+[Description]
+
+Be concise but complete. Include all traits including subraces if applicable.
+`.trim();
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   try {
-    const { type, name } = await req.json();
+    const body = await req.json();
+    const { type } = body;
 
-    if (!name?.trim() || !['spell', 'item', 'feat'].includes(type)) {
+    const VALID_TYPES = ['spell', 'item', 'feat', 'subclass_guide', 'race_guide'];
+    if (!VALID_TYPES.includes(type)) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }
+
+    // Prose (non-JSON) responses for guide types
+    if (type === 'subclass_guide') {
+      const { className, subclassName, currentLevel } = body;
+      if (!className || !subclassName) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+      const message = await client.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: SUBCLASS_GUIDE_PROMPT(className, subclassName, currentLevel ?? 1) }],
+      });
+      const text = message.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+      return NextResponse.json({ result: { text }, source: 'claude' });
+    }
+
+    if (type === 'race_guide') {
+      const { raceName } = body;
+      if (!raceName) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+      const message = await client.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 1536,
+        messages: [{ role: 'user', content: RACE_GUIDE_PROMPT(raceName) }],
+      });
+      const text = message.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+      return NextResponse.json({ result: { text }, source: 'claude' });
+    }
+
+    // JSON responses for lookup types (spell / item / feat)
+    const { name } = body;
+    if (!name?.trim()) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
 
     const prompt = type === 'spell' ? SPELL_PROMPT(name.trim()) : type === 'feat' ? FEAT_PROMPT(name.trim()) : ITEM_PROMPT(name.trim());
 
