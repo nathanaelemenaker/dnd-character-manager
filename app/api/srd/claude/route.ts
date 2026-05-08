@@ -48,6 +48,21 @@ Return ONLY a valid JSON object with these exact fields — no markdown, no expl
 If you don't recognize this as an official D&D 5e item, return: {"error": "not_found"}
 `.trim();
 
+const FEAT_PROMPT = (name: string) => `
+You are a D&D 5e rules expert. Look up the feat, class feature, or racial trait "${name}" from any
+official D&D 5e sourcebook (PHB, Xanathar's Guide, Tasha's Cauldron, etc.).
+
+Return ONLY a valid JSON object with these exact fields — no markdown, no explanation, just the JSON:
+{
+  "name": "exact feat/feature name",
+  "source": "e.g. Feat, Fighter 1, Ranger: Beast Master 3, PHB",
+  "prereq": "prerequisite or empty string",
+  "desc": "full description of all the feat/feature's benefits and mechanics"
+}
+
+If you don't recognize this as an official D&D 5e feat or class feature, return: {"error": "not_found"}
+`.trim();
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
@@ -55,11 +70,11 @@ export async function POST(req: NextRequest) {
   try {
     const { type, name } = await req.json();
 
-    if (!name?.trim() || !['spell', 'item'].includes(type)) {
+    if (!name?.trim() || !['spell', 'item', 'feat'].includes(type)) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }
 
-    const prompt = type === 'spell' ? SPELL_PROMPT(name.trim()) : ITEM_PROMPT(name.trim());
+    const prompt = type === 'spell' ? SPELL_PROMPT(name.trim()) : type === 'feat' ? FEAT_PROMPT(name.trim()) : ITEM_PROMPT(name.trim());
 
     const message = await client.messages.create({
       model: 'claude-opus-4-7',

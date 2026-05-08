@@ -164,6 +164,44 @@ form { display: grid; gap: 12px; max-width: 420px; }
 .school-necromancy  { color: #3d6b2a !important; border-color: #3d6b2a !important; background: rgba(61,107,42,0.08) !important; }
 .school-transmutation { color: #8a6b00 !important; border-color: #8a6b00 !important; background: rgba(138,107,0,0.08) !important; }
 
+/* ── Mobile bottom nav (character sheet) ─────────────────────────────────── */
+.mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--parchment);
+    border-top: 1.5px solid var(--border-light);
+    z-index: 50;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .mobile-nav-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 2px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--border);
+    font-family: var(--font-display);
+    transition: color 0.1s;
+    min-height: 52px;
+  }
+  .mobile-nav-btn.active {
+    color: var(--gold);
+    border-top: 2px solid var(--gold);
+    margin-top: -2px;
+  }
+}
+
 /* ── Print ────────────────────────────────────────────────────────────────── */
 @media print {
   nav, button, .ink-btn, [class*="nav"], [class*="Nav"],

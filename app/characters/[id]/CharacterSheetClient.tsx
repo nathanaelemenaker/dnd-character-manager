@@ -64,6 +64,7 @@ interface SheetState {
   currency: Record<string, number>;
   features: Feature[];
   bio: Record<string, string>;
+  conditions: string[];
   _updatedAt: string; // ISO timestamp from server for concurrency control
 }
 
@@ -87,7 +88,8 @@ type Action =
   | { type: 'SET_CLASSES'; classes: CharClass[] }
   | { type: 'LONG_REST' }
   | { type: 'SHORT_REST' }
-  | { type: 'SET_UPDATED_AT'; ts: string };
+  | { type: 'SET_UPDATED_AT'; ts: string }
+  | { type: 'TOGGLE_CONDITION'; condition: string };
 
 function clamp(n: number, min: number, max: number) { return Math.max(min, Math.min(max, n)); }
 function profBonusForLevel(level: number) { return Math.ceil(level / 4) + 1; }
@@ -130,6 +132,7 @@ function buildInitialState(
     skills, saves, spellSlots: slots, spells, inventory, features,
     currency: c.currency,
     bio: c.bio,
+    conditions: [],
     _updatedAt: c.updatedAt ?? new Date().toISOString(),
   };
 }
@@ -162,7 +165,11 @@ function reducer(state: SheetState, action: Action): SheetState {
     case 'ADD_FEATURE': return { ...state, features: [...state.features, action.feature] };
     case 'REMOVE_FEATURE': return { ...state, features: state.features.filter((f) => f.id !== action.id) };
     case 'SET_CLASSES': return { ...state, classes: action.classes };
-    case 'LONG_REST': return { ...state, hp: { ...state.hp, current: state.hp.max, temp: 0 }, deathSaves: { successes: 0, failures: 0 }, spellSlots: state.spellSlots.map((s) => ({ ...s, used: 0 })) };
+    case 'LONG_REST': return { ...state, conditions: [], hp: { ...state.hp, current: state.hp.max, temp: 0 }, deathSaves: { successes: 0, failures: 0 }, spellSlots: state.spellSlots.map((s) => ({ ...s, used: 0 })) };
+    case 'TOGGLE_CONDITION': {
+      const has = state.conditions.includes(action.condition);
+      return { ...state, conditions: has ? state.conditions.filter(c => c !== action.condition) : [...state.conditions, action.condition] };
+    }
     case 'SHORT_REST': return { ...state, deathSaves: { successes: 0, failures: 0 } };
     case 'SET_UPDATED_AT': return { ...state, _updatedAt: action.ts };
     default: return state;
@@ -578,7 +585,11 @@ export default function CharacterSheetClient({
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp };
+  const toggleCondition = useCallback((c: string) => {
+    dispatch({ type: 'TOGGLE_CONDITION', condition: c });
+  }, []);
+
+  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition };
 
   return (
     <div className={styles.root}>
@@ -625,6 +636,27 @@ export default function CharacterSheetClient({
           </button>
         ))}
       </nav>
+
+      {/* Mobile sticky bottom nav — shows 6 key tabs */}
+      <div className="mobile-bottom-nav">
+        {[
+          { id: 'overview',   label: '📋', name: 'Overview' },
+          { id: 'combat',     label: '⚔️',  name: 'Combat'   },
+          { id: 'spells',     label: '✨',  name: 'Spells'   },
+          { id: 'inventory',  label: '🎒',  name: 'Items'    },
+          { id: 'notes',      label: '📝',  name: 'Notes'    },
+          { id: 'bio',        label: '👤',  name: 'Bio'      },
+        ].map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={tab === t.id ? 'mobile-nav-btn active' : 'mobile-nav-btn'}
+          >
+            <span style={{ fontSize: 18, lineHeight: 1 }}>{t.label}</span>
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 0.5 }}>{t.name}</span>
+          </button>
+        ))}
+      </div>
 
       <div className={styles.content}>
         {tab === 'overview'    && <OverviewTab   {...tabProps} />}
@@ -697,8 +729,74 @@ function HPBlock({ state, adjustHP, toggleDS, hpDelta, setHpDelta, hpPct, dispat
   );
 }
 
+// ── Condition Tracker ────────────────────────────────────────────────────────
+const CONDITIONS: { name: string; color: string; desc: string }[] = [
+  { name: 'Blinded',        color: '#666',    desc: 'Can\'t see. Auto-fails sight checks. Attacks against you have advantage; your attacks have disadvantage.' },
+  { name: 'Charmed',        color: '#c0578a', desc: 'Can\'t attack the charmer. Charmer has advantage on social checks against you.' },
+  { name: 'Deafened',       color: '#666',    desc: 'Can\'t hear. Auto-fails hearing checks.' },
+  { name: 'Exhaustion',     color: '#8a6b00', desc: 'Levels 1–6: disadvantage on checks → speed halved → disadvantage on attacks/saves → max HP halved → speed 0 → death.' },
+  { name: 'Frightened',     color: '#8b1a1a', desc: 'Disadvantage on checks and attacks while source of fear is in sight. Can\'t willingly move closer.' },
+  { name: 'Grappled',       color: '#b35c00', desc: 'Speed becomes 0. Ends if grappler is incapacitated or you are moved away.' },
+  { name: 'Incapacitated',  color: '#666',    desc: 'Can\'t take actions or reactions.' },
+  { name: 'Invisible',      color: '#1a7b6a', desc: 'Impossible to see without magic. Attacks against you have disadvantage; your attacks have advantage.' },
+  { name: 'Paralyzed',      color: '#3d6b2a', desc: 'Incapacitated, can\'t move or speak. Auto-fails STR/DEX saves. Attacks against you have advantage. Hits within 5ft are crits.' },
+  { name: 'Petrified',      color: '#666',    desc: 'Transformed to stone. Incapacitated, can\'t move/speak, unaware. Resistance to all damage. Immune to poison/disease.' },
+  { name: 'Poisoned',       color: '#3d6b2a', desc: 'Disadvantage on attack rolls and ability checks.' },
+  { name: 'Prone',          color: '#b35c00', desc: 'Disadvantage on attacks. Attacks against you: advantage within 5ft, disadvantage beyond. Move costs double to stand up.' },
+  { name: 'Restrained',     color: '#8a6b00', desc: 'Speed 0. Attack rolls against you have advantage. Your attack rolls and DEX saves have disadvantage.' },
+  { name: 'Stunned',        color: '#1a6b9a', desc: 'Incapacitated, can\'t move, can barely speak. Auto-fails STR/DEX saves. Attacks against you have advantage.' },
+  { name: 'Unconscious',    color: '#333',    desc: 'Incapacitated, can\'t move or speak, unaware. Drop anything held, fall prone. Auto-fails STR/DEX saves. Attacks have advantage, hits within 5ft are crits.' },
+];
+
+function ConditionTracker({ conditions, toggleCondition }: { conditions: string[]; toggleCondition: (c: string) => void }) {
+  const [tooltip, setTooltip] = useState<string | null>(null);
+  return (
+    <div className="panel">
+      <div className="panel-header">Conditions</div>
+      <div className="panel-body">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {CONDITIONS.map((c) => {
+            const active = conditions.includes(c.name);
+            return (
+              <button
+                key={c.name}
+                onClick={() => toggleCondition(c.name)}
+                onMouseEnter={() => setTooltip(c.name)}
+                onMouseLeave={() => setTooltip(null)}
+                style={{
+                  padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
+                  fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700,
+                  border: `1.5px solid ${active ? c.color : 'var(--border-light)'}`,
+                  background: active ? c.color : 'transparent',
+                  color: active ? '#fff' : 'var(--border)',
+                  transition: 'all 0.1s',
+                }}
+              >
+                {c.name}
+              </button>
+            );
+          })}
+        </div>
+        {tooltip && (() => {
+          const c = CONDITIONS.find(x => x.name === tooltip);
+          return c ? (
+            <div style={{ marginTop: 8, padding: '6px 8px', background: 'var(--parchment-dark)', borderRadius: 3, fontSize: 11, color: 'var(--ink-light)', lineHeight: 1.5, borderLeft: `3px solid ${c.color}` }}>
+              <strong style={{ fontFamily: 'var(--font-display)', fontSize: 11 }}>{c.name}:</strong> {c.desc}
+            </div>
+          ) : null;
+        })()}
+        {conditions.length > 0 && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
+            {conditions.length} condition{conditions.length !== 1 ? 's' : ''} active · Long Rest will clear all
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Overview ──────────────────────────────────────────────────────────────
-function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, setShowLevelUp }: any) {
+function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, setShowLevelUp, conditions }: any) {
   const init = mods['DEX'];
   return (
     <>
@@ -827,6 +925,23 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
           </button>
         </div>
       </div>
+      {conditions && conditions.length > 0 && (
+        <div className="panel" style={{ marginTop: 10 }}>
+          <div className="panel-header">Active Conditions</div>
+          <div className="panel-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {conditions.map((c: string) => {
+              const cd = CONDITIONS.find(x => x.name === c);
+              return (
+                <span key={c} style={{
+                  padding: '2px 8px', borderRadius: 3,
+                  fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700,
+                  background: cd?.color ?? 'var(--red)', color: '#fff',
+                }}>{c}</span>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1108,7 +1223,7 @@ function ActiveStatBonuses({ state, mods, onApplyAC }: {
 }
 
 
-function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta }: any) {
+function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition }: any) {
   return (
     <>
       <ActiveStatBonuses
@@ -1161,7 +1276,90 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
           ))}
         </div>
       </div>
+      <ConditionTracker conditions={conditions ?? []} toggleCondition={toggleCondition} />
+      <InitiativeTracker />
     </>
+  );
+}
+
+// ── Initiative Tracker ───────────────────────────────────────────────────────
+interface Combatant { id: string; name: string; initiative: number; hp: number | null; maxHp: number | null; }
+
+function InitiativeTracker() {
+  const [combatants, setCombatants] = useState<Combatant[]>([]);
+  const [name, setName] = useState('');
+  const [initiative, setInitiative] = useState('');
+  const [hp, setHp] = useState('');
+  const [turn, setTurn] = useState(0);
+
+  function add() {
+    if (!name.trim()) return;
+    const init = parseInt(initiative) || 0;
+    const hpVal = hp.trim() ? parseInt(hp) || null : null;
+    const newC: Combatant = { id: Math.random().toString(36).slice(2), name: name.trim(), initiative: init, hp: hpVal, maxHp: hpVal };
+    setCombatants(prev => [...prev, newC].sort((a, b) => b.initiative - a.initiative));
+    setName(''); setInitiative(''); setHp('');
+  }
+
+  function remove(id: string) { setCombatants(prev => prev.filter(c => c.id !== id)); }
+
+  function adjustHp(id: string, delta: number) {
+    setCombatants(prev => prev.map(c => c.id === id ? { ...c, hp: c.hp === null ? null : Math.max(0, c.hp + delta) } : c));
+  }
+
+  function nextTurn() { setTurn(t => (t + 1) % Math.max(1, combatants.length)); }
+
+  const sorted = combatants;
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Initiative Tracker</div>
+      <div className="panel-body">
+        {sorted.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {sorted.map((c, i) => (
+              <div key={c.id} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px',
+                borderRadius: 3, marginBottom: 3,
+                background: i === turn % sorted.length ? 'rgba(201,162,39,0.12)' : 'var(--parchment)',
+                border: `1.5px solid ${i === turn % sorted.length ? 'var(--gold)' : 'var(--border-light)'}`,
+              }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, minWidth: 22, color: 'var(--gold)', textAlign: 'center' }}>{c.initiative}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{c.name}</span>
+                {c.hp !== null && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button onClick={() => adjustHp(c.id, -1)} style={{ background: 'none', border: '1px solid var(--red)', color: 'var(--red)', borderRadius: 2, padding: '0 5px', cursor: 'pointer', fontSize: 13, lineHeight: '18px' }}>−</button>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, minWidth: 28, textAlign: 'center' }}>{c.hp}{c.maxHp !== null ? '/'+c.maxHp : ''}</span>
+                    <button onClick={() => adjustHp(c.id, 1)} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--border)', borderRadius: 2, padding: '0 5px', cursor: 'pointer', fontSize: 13, lineHeight: '18px' }}>+</button>
+                  </div>
+                )}
+                <button onClick={() => remove(c.id)} style={{ background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}>✕</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button className="ink-btn" style={{ fontSize: 11 }} onClick={nextTurn}>▶ Next Turn</button>
+              <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={() => { setCombatants([]); setTurn(0); }}>Clear All</button>
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div>
+            <div className="field-label">Name</div>
+            <input type="text" placeholder="Goblin" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} style={{ width: 110, padding: '3px 6px', fontSize: 12 }} />
+          </div>
+          <div>
+            <div className="field-label">Init</div>
+            <input type="number" placeholder="14" value={initiative} onChange={e => setInitiative(e.target.value)} style={{ width: 52, padding: '3px 6px', fontSize: 12 }} />
+          </div>
+          <div>
+            <div className="field-label">HP (opt)</div>
+            <input type="number" placeholder="7" value={hp} onChange={e => setHp(e.target.value)} style={{ width: 52, padding: '3px 6px', fontSize: 12 }} />
+          </div>
+          <button className="ink-btn" style={{ fontSize: 12 }} onClick={add}>+ Add</button>
+        </div>
+        {sorted.length === 0 && <div className="empty-state" style={{ marginTop: 8 }}>Add combatants to track initiative order</div>}
+      </div>
+    </div>
   );
 }
 
@@ -1517,6 +1715,8 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
   const byLevel: Record<number, Spell[]> = {};
   state.spells.forEach((s: Spell) => { if (!byLevel[s.level]) byLevel[s.level] = []; byLevel[s.level].push(s); });
 
+  const concentrationSpells = state.spells.filter((s: Spell) => s.concentration && s.prepared);
+
   const inputStyle = { width: '100%', padding: '4px 6px', fontFamily: 'var(--font-body)', fontSize: 13 };
   const rowStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 } as React.CSSProperties;
 
@@ -1529,6 +1729,23 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
         dismissedKeys={dismissedSlotWarnings}
         onDismiss={(key) => setDismissedSlotWarnings(prev => new Set([...prev, key]))}
       />
+      {concentrationSpells.length > 0 && (
+        <div style={{
+          padding: '8px 12px', marginBottom: 8,
+          background: 'rgba(26,107,154,0.08)', border: '1.5px solid #1a6b9a',
+          borderRadius: 4, display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>🔮</span>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: '#1a6b9a', letterSpacing: 0.5 }}>
+              CONCENTRATION ACTIVE
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-light)', marginTop: 2 }}>
+              {concentrationSpells.map((s: Spell) => s.name).join(', ')} — casting another concentration spell ends this one
+            </div>
+          </div>
+        </div>
+      )}
       <div className="panel">
         <div className="panel-header">Spell Slots</div>
         <div className="panel-body">
@@ -2219,11 +2436,38 @@ function FeaturesTab({ state, addFeature, removeFeature }: any) {
   const [name, setName] = useState('');
   const [source, setSource] = useState('');
   const [desc, setDesc] = useState('');
+  const [searchQ, setSearchQ] = useState('');
+  const [claudeLoading, setClaudeLoading] = useState(false);
+  const [claudeResult, setClaudeResult] = useState<any>(null);
+  const [claudeError, setClaudeError] = useState('');
+
+  async function lookupFeat() {
+    if (!searchQ.trim()) return;
+    setClaudeLoading(true); setClaudeResult(null); setClaudeError('');
+    try {
+      const r = await fetch('/api/srd/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'feat', name: searchQ.trim() }),
+      });
+      if (r.status === 404) { setClaudeError(`Claude doesn't recognize "${searchQ}" as an official D&D 5e feat or trait.`); return; }
+      if (!r.ok) throw new Error('Lookup failed');
+      const d = await r.json();
+      setClaudeResult(d.result);
+      setName(d.result.name ?? '');
+      setSource(d.result.source ?? 'Feat');
+      setDesc(d.result.desc ?? '');
+    } catch (e: any) {
+      setClaudeError(e?.message ?? 'Lookup failed');
+    } finally {
+      setClaudeLoading(false);
+    }
+  }
 
   async function handleAdd() {
     if (!name.trim()) return;
     await addFeature({ name: name.trim(), source: source.trim() || '—', desc: desc.trim() });
-    setName(''); setSource(''); setDesc('');
+    setName(''); setSource(''); setDesc(''); setSearchQ(''); setClaudeResult(null); setClaudeError('');
   }
 
   return (
@@ -2243,11 +2487,37 @@ function FeaturesTab({ state, addFeature, removeFeature }: any) {
           </div>
         ))}
         {state.features.length === 0 && <div className="empty-state">No features yet</div>}
-        <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
-          <input type="text" placeholder="Feature name…" value={name} onChange={(e) => setName(e.target.value)} />
-          <input type="text" placeholder="Source (e.g. Ranger 1)…" value={source} onChange={(e) => setSource(e.target.value)} />
-          <textarea placeholder="Description…" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} style={{ resize: 'vertical' }} />
-          <button className="ink-btn" onClick={handleAdd} style={{ alignSelf: 'flex-start' }}>Add Feature</button>
+
+        <div style={{ marginTop: 14, borderTop: '1px solid var(--parchment-dark)', paddingTop: 12 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+            Add Feature / Feat
+          </div>
+
+          {/* Claude lookup */}
+          <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(201,162,39,0.05)', border: '1px solid var(--border-light)', borderRadius: 4 }}>
+            <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginBottom: 6 }}>
+              Look up a feat or class feature to auto-fill the form:
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input type="text" placeholder="e.g. Lucky, War Caster, Sentinel…" value={searchQ} onChange={e => setSearchQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && lookupFeat()} style={{ flex: 1, padding: '3px 6px', fontSize: 12 }} />
+              <button className="ink-btn" style={{ fontSize: 12 }} onClick={lookupFeat} disabled={claudeLoading || !searchQ.trim()}>
+                {claudeLoading ? '⏳' : '✦ Look Up'}
+              </button>
+            </div>
+            {claudeError && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>{claudeError}</div>}
+            {claudeResult && (
+              <div style={{ fontSize: 11, color: 'var(--gold)', fontFamily: 'var(--font-display)', fontWeight: 700, marginTop: 6, letterSpacing: 0.5 }}>
+                ✦ Found — form auto-filled. Edit if needed, then Add.
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gap: 6 }}>
+            <input type="text" placeholder="Feature name…" value={name} onChange={(e) => setName(e.target.value)} />
+            <input type="text" placeholder="Source (e.g. Ranger 1, Feat)…" value={source} onChange={(e) => setSource(e.target.value)} />
+            <textarea placeholder="Description…" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} style={{ resize: 'vertical' }} />
+            <button className="ink-btn" onClick={handleAdd} style={{ alignSelf: 'flex-start' }}>Add Feature</button>
+          </div>
         </div>
       </div>
     </div>
