@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { saveRecording, deleteRecording } from '@/lib/recordingStore';
 
 export type RecordState =
   | 'idle' | 'recording' | 'paused' | 'uploading'
@@ -20,6 +21,7 @@ interface RecordingContextValue {
   resumeRecording: () => void;
   handleRetry: () => Promise<void>;
   clearCompleted: () => void;
+  recoverRecording: (campaignId: string, sessionId: string, blob: Blob, elapsed: number) => void;
 }
 
 const RecordingContext = createContext<RecordingContextValue | null>(null);
@@ -44,6 +46,16 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const snapshotRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Keep current sessionId/campaignId accessible inside interval callbacks
+  const activeSessionIdRef = useRef<string | null>(null);
+  const activeCampaignIdRef = useRef<string | null>(null);
+  const elapsedRef = useRef(0);
+
+  // Keep refs in sync with state
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  useEffect(() => { activeCampaignIdRef.current = activeCampaignId; }, [activeCampaignId]);
+  useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
 
   // Warn before tab close / refresh when recording or uploading
   useEffect(() => {
@@ -68,6 +80,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (pollRef.current) clearInterval(pollRef.current);
+      if (snapshotRef.current) clearInterval(snapshotRef.current);
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
   }, []);
@@ -101,6 +114,21 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [recordingState, activeSessionId, activeCampaignId]);
 
+  function startSnapshotInterval() {
+    if (snapshotRef.current) clearInterval(snapshotRef.current);
+    snapshotRef.current = setInterval(() => {
+      const sid = activeSessionIdRef.current;
+      const cid = activeCampaignIdRef.current;
+      if (sid && cid && chunksRef.current.length > 0) {
+        saveRecording(sid, cid, chunksRef.current, elapsedRef.current).catch(() => {});
+      }
+    }, 30_000);
+  }
+
+  function stopSnapshotInterval() {
+    if (snapshotRef.current) { clearInterval(snapshotRef.current); snapshotRef.current = null; }
+  }
+
   const startRecording = useCallback(async (campaignId: string, sessionId: string) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -120,9 +148,13 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
 
       setActiveCampaignId(campaignId);
       setActiveSessionId(sessionId);
+      activeSessionIdRef.current = sessionId;
+      activeCampaignIdRef.current = campaignId;
       setElapsed(0);
+      elapsedRef.current = 0;
       setErrorMsg('');
       timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+      startSnapshotInterval();
       setRecordingState('recording');
     } catch (e: any) {
       setErrorMsg(e?.message?.includes('Permission')
@@ -136,24 +168,36 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const pauseRecording = useCallback(() => {
     mediaRecorderRef.current?.pause();
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    stopSnapshotInterval();
+    // Save snapshot immediately on pause
+    const sid = activeSessionIdRef.current;
+    const cid = activeCampaignIdRef.current;
+    if (sid && cid && chunksRef.current.length > 0) {
+      saveRecording(sid, cid, chunksRef.current, elapsedRef.current).catch(() => {});
+    }
     setRecordingState('paused');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resumeRecording = useCallback(() => {
     mediaRecorderRef.current?.resume();
     timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    startSnapshotInterval();
     setRecordingState('recording');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stopRecording = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    stopSnapshotInterval();
     streamRef.current?.getTracks().forEach(t => t.stop());
     mediaRecorderRef.current?.stop();
     setRecordingState('uploading');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleUpload(campaignId: string, sessionId: string) {
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+  async function handleUpload(campaignId: string, sessionId: string, recoveredBlob?: Blob) {
+    const blob = recoveredBlob ?? new Blob(chunksRef.current, { type: 'audio/webm' });
     const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
     setUploadProgress(`0% — 0 of ${sizeMB} MB`);
 
@@ -188,6 +232,8 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
         xhr.send(form);
       });
 
+      // Upload succeeded — clear the crash-recovery snapshot
+      deleteRecording(sessionId).catch(() => {});
       setRecordingState('pending');
       setUploadProgress('');
     } catch (e: any) {
@@ -196,6 +242,24 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
       setUploadProgress('');
     }
   }
+
+  // Called by RecordButton when the user chooses to recover a saved recording
+  const recoverRecording = useCallback((
+    campaignId: string,
+    sessionId: string,
+    blob: Blob,
+    savedElapsed: number,
+  ) => {
+    setActiveCampaignId(campaignId);
+    setActiveSessionId(sessionId);
+    activeSessionIdRef.current = sessionId;
+    activeCampaignIdRef.current = campaignId;
+    setElapsed(savedElapsed);
+    elapsedRef.current = savedElapsed;
+    setRecordingState('uploading');
+    handleUpload(campaignId, sessionId, blob);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRetry = useCallback(async () => {
     if (!activeCampaignId || !activeSessionId) return;
@@ -220,7 +284,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
       recordingState, activeSessionId, activeCampaignId,
       elapsed, uploadProgress, errorMsg, completedTranscript,
       startRecording, stopRecording, pauseRecording, resumeRecording,
-      handleRetry, clearCompleted,
+      handleRetry, clearCompleted, recoverRecording,
     }}>
       {children}
     </RecordingContext.Provider>

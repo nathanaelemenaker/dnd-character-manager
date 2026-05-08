@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRecording } from '@/context/RecordingContext';
+import { loadRecording, deleteRecording, type SavedRecording } from '@/lib/recordingStore';
 
 interface RecordButtonProps {
   campaignId: string;
@@ -26,10 +27,22 @@ export default function RecordButton({
   const {
     recordingState, activeSessionId, elapsed, uploadProgress, errorMsg, completedTranscript,
     startRecording, stopRecording, pauseRecording, resumeRecording, handleRetry, clearCompleted,
+    recoverRecording,
   } = useRecording();
+
+  const [savedRecording, setSavedRecording] = useState<SavedRecording | null>(null);
 
   // Is this RecordButton's session the one currently active in the context?
   const isThisSession = activeSessionId === sessionId;
+
+  // Check IndexedDB for a crash-recovered recording on mount
+  useEffect(() => {
+    // Only check if no active recording is already in progress for this session
+    if (isThisSession) return;
+    loadRecording(sessionId).then(saved => {
+      if (saved) setSavedRecording(saved);
+    }).catch(() => {});
+  }, [sessionId, isThisSession]);
 
   // When context finishes transcription for this session, fire the callback
   useEffect(() => {
@@ -187,19 +200,69 @@ export default function RecordButton({
     );
   }
 
-  // ── Idle ────────────────────────────────────────────────────────────────────
+  // ── Idle (with optional crash-recovery notice) ──────────────────────────────
+  const savedAgo = savedRecording
+    ? Math.round((Date.now() - savedRecording.savedAt) / 60_000)
+    : 0;
+
   return (
-    <div>
-      <button
-        className="ink-btn"
-        style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}
-        onClick={() => startRecording(campaignId, sessionId)}
-      >
-        <span style={{ fontSize: 16 }}>🎙</span>
-        Record Audio
-      </button>
-      <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
-        Records in your browser — navigate freely while recording. Upload when you're done.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {savedRecording && (
+        <div style={{
+          padding: '12px 14px',
+          background: 'rgba(201,162,39,0.07)',
+          border: '1.5px solid rgba(201,162,39,0.5)',
+          borderRadius: 5,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 16 }}>💾</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
+              Unsaved recording found
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--border)', marginBottom: 10, lineHeight: 1.5 }}>
+            A recording of {formatDuration(savedRecording.elapsed)} was saved{' '}
+            {savedAgo < 2 ? 'just now' : `${savedAgo} minute${savedAgo !== 1 ? 's' : ''} ago`}{' '}
+            — likely from a browser crash or accidental close.{' '}
+            {(savedRecording.blob.size / 1024 / 1024).toFixed(1)} MB
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="ink-btn"
+              style={{ fontSize: 12 }}
+              onClick={() => {
+                setSavedRecording(null);
+                recoverRecording(campaignId, sessionId, savedRecording.blob, savedRecording.elapsed);
+              }}
+            >
+              📤 Upload recovered recording
+            </button>
+            <button
+              className="ink-btn ghost"
+              style={{ fontSize: 12 }}
+              onClick={() => {
+                deleteRecording(sessionId).catch(() => {});
+                setSavedRecording(null);
+              }}
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <button
+          className="ink-btn"
+          style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}
+          onClick={() => startRecording(campaignId, sessionId)}
+        >
+          <span style={{ fontSize: 16 }}>🎙</span>
+          Record Audio
+        </button>
+        <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
+          Records in your browser — navigate freely while recording. Upload when you're done.
+        </div>
       </div>
     </div>
   );
