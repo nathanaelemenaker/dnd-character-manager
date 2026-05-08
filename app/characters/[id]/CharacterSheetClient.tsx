@@ -1865,6 +1865,9 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [attunementWarning, setAttunementWarning] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+  const [claudeLoading, setClaudeLoading] = useState(false);
+  const [claudeError, setClaudeError] = useState('');
 
   // Custom item state
   const [showCustom, setShowCustom] = useState(false);
@@ -1894,7 +1897,7 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
 
   async function search() {
     if (!searchQ.trim()) return;
-    setSearching(true); setResults([]); setSelected(null);
+    setSearching(true); setResults([]); setSelected(null); setClaudeError(''); setSearched(false);
     try {
       const r = await fetch(`/api/srd?type=items&ruleset=${state.ruleset}&q=${encodeURIComponent(searchQ)}`);
       if (!r.ok) throw new Error(`Search failed: ${r.status}`);
@@ -1905,12 +1908,33 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
       setResults([]);
     }
     setSearching(false);
+    setSearched(true);
+  }
+
+  async function askClaude() {
+    if (!searchQ.trim()) return;
+    setClaudeLoading(true); setClaudeError(''); setSelected(null);
+    try {
+      const r = await fetch('/api/srd/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'item', name: searchQ.trim() }),
+      });
+      if (r.status === 404) { setClaudeError(`Claude doesn't recognize "${searchQ}" as an official D&D 5e item. Try the custom form below.`); return; }
+      if (!r.ok) throw new Error('Claude lookup failed');
+      const d = await r.json();
+      setSelected({ ...d.result, _source: 'claude' });
+    } catch (e: any) {
+      setClaudeError(e?.message ?? 'Claude lookup failed');
+    } finally {
+      setClaudeLoading(false);
+    }
   }
 
   async function handleAdd() {
     if (!selected) return;
     setAdding(true);
-    await addInventoryFromSrd(selected.srdKey, selected.name, {
+    await addInventoryFromSrd(selected.srdKey ?? selected.name, selected.name, {
       type:               selected.type,
       rarity:             selected.rarity,
       weight:             selected.weight,
@@ -1918,7 +1942,7 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
       desc:               selected.desc,
     });
     setAdding(false);
-    setSelected(null); setResults([]); setSearchQ('');
+    setSelected(null); setResults([]); setSearchQ(''); setSearched(false);
   }
 
   const inputStyle = { width: '100%', padding: '4px 6px', fontFamily: 'var(--font-body)', fontSize: 13 };
@@ -1960,8 +1984,37 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
               ))}
             </div>
           )}
+          {!selected && searched && !searching && results.length === 0 && (
+            <div style={{ padding: '10px 0' }}>
+              <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginBottom: 8 }}>
+                No results in SRD databases for "{searchQ}".
+              </div>
+              {claudeError ? (
+                <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 8, lineHeight: 1.5 }}>{claudeError}</div>
+              ) : (
+                <button
+                  className="ink-btn"
+                  style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={askClaude}
+                  disabled={claudeLoading}
+                >
+                  {claudeLoading ? '⏳ Asking Claude…' : '✦ Ask Claude'}
+                </button>
+              )}
+              {claudeLoading && (
+                <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
+                  Claude is looking up "{searchQ}" from its D&D 5e knowledge…
+                </div>
+              )}
+            </div>
+          )}
           {selected && (
             <div className="detail-card">
+              {selected._source === 'claude' && (
+                <div style={{ fontSize: 10, color: 'var(--gold)', fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  ✦ SOURCE: CLAUDE — verify details before adding
+                </div>
+              )}
               <div className="detail-title">{selected.name}</div>
               <div className="detail-subtitle">{selected.type}</div>
               <div className="detail-props">
