@@ -27,7 +27,7 @@ export default function FloatingRecordingBar() {
   // ── Recording ──────────────────────────────────────────────────────────────
   if (recordingState === 'recording') {
     return (
-      <div style={barStyle('var(--red)', 'rgba(139,26,26,0.06)')}>
+      <div className="recording-bar" style={barStyle('var(--red)', 'rgba(139,26,26,0.06)')}>
         <span style={dotStyle('var(--red)', true)} />
         <span style={timerStyle('var(--red)')}>{formatDuration(elapsed)}</span>
         <span style={labelStyle}>Recording</span>
@@ -43,7 +43,7 @@ export default function FloatingRecordingBar() {
   // ── Paused ─────────────────────────────────────────────────────────────────
   if (recordingState === 'paused') {
     return (
-      <div style={barStyle('var(--gold)', 'rgba(201,162,39,0.06)')}>
+      <div className="recording-bar" style={barStyle('var(--gold)', 'rgba(201,162,39,0.06)')}>
         <span style={dotStyle('var(--gold)', false)} />
         <span style={timerStyle('var(--gold)')}>{formatDuration(elapsed)}</span>
         <span style={labelStyle}>Paused</span>
@@ -59,7 +59,7 @@ export default function FloatingRecordingBar() {
   if (recordingState === 'uploading') {
     const pct = uploadProgress ? parseInt(uploadProgress) : 0;
     return (
-      <div style={barStyle('var(--border-light)', 'var(--parchment-dark)', true)}>
+      <div className="recording-bar" style={barStyle('var(--border-light)', 'var(--parchment-dark)', true)}>
         <span style={{ fontSize: 15 }}>📤</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12, color: 'var(--ink)', marginBottom: 4 }}>
@@ -79,7 +79,7 @@ export default function FloatingRecordingBar() {
   // ── Pending / Processing ───────────────────────────────────────────────────
   if (recordingState === 'pending' || recordingState === 'processing') {
     return (
-      <div style={barStyle('rgba(201,162,39,0.4)', 'rgba(201,162,39,0.06)')}>
+      <div className="recording-bar" style={barStyle('rgba(201,162,39,0.4)', 'rgba(201,162,39,0.06)')}>
         <span style={{ fontSize: 15 }}>⏳</span>
         <span style={labelStyle}>
           Transcription {recordingState === 'pending' ? 'queued' : 'in progress'}…
@@ -96,7 +96,7 @@ export default function FloatingRecordingBar() {
   // ── Done ───────────────────────────────────────────────────────────────────
   if (recordingState === 'done') {
     return (
-      <div style={barStyle('rgba(46,125,50,0.3)', 'rgba(46,125,50,0.06)')}>
+      <div className="recording-bar" style={barStyle('rgba(46,125,50,0.3)', 'rgba(46,125,50,0.06)')}>
         <span style={{ fontSize: 15 }}>✓</span>
         <span style={{ ...labelStyle, color: '#2e7d32' }}>Transcript ready</span>
         {sessionLink && (
@@ -114,7 +114,7 @@ export default function FloatingRecordingBar() {
   // ── Error ──────────────────────────────────────────────────────────────────
   if (recordingState === 'error') {
     return (
-      <div style={barStyle('rgba(139,26,26,0.3)', 'rgba(139,26,26,0.06)')}>
+      <div className="recording-bar" style={barStyle('rgba(139,26,26,0.3)', 'rgba(139,26,26,0.06)')}>
         <span style={{ fontSize: 15 }}>⚠️</span>
         <span style={{ fontSize: 12, color: 'var(--red)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {errorMsg || 'Transcription error'}

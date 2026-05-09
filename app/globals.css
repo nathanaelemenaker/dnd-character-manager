@@ -200,6 +200,12 @@ form { display: grid; gap: 12px; max-width: 420px; }
     border-top: 2px solid var(--gold);
     margin-top: -2px;
   }
+
+  /* Lift the recording bar above the mobile tab nav so they don't overlap.
+     52px = mobile-nav-btn min-height; safe-area covers the home indicator. */
+  .recording-bar {
+    bottom: calc(52px + env(safe-area-inset-bottom, 0px)) !important;
+  }
 }
 
 /* ── Print ────────────────────────────────────────────────────────────────── */
