@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { cacheGet, cacheSet } from '@/app/lib/claudeCache';
 
 interface CharClass { name: string; subclass: string; level: number; hitDie: number; }
 interface Feature { id?: string; name: string; source: string; desc: string; }
@@ -73,13 +74,22 @@ export default function ClassGuideTab({
   const [expandedSub, setExpandedSub] = useState<string|null>(null);
   const [addingFeature, setAddingFeature] = useState<string|null>(null);
 
-  // Claude subclass features
-  const [subclaudeText, setSubclaudeText] = useState<Record<string, string>>({});
+  // Claude subclass features — seed from localStorage cache on first render
+  const [subclaudeText, setSubclaudeText] = useState<Record<string, string>>(() => {
+    const seed: Record<string, string> = {};
+    for (const cls of classes) {
+      if (!cls.subclass) continue;
+      const key = `${cls.name}-${cls.subclass}`;
+      const cached = cacheGet('subclass_guide', key);
+      if (cached) seed[key] = cached;
+    }
+    return seed;
+  });
   const [subclaudeLoading, setSubclaudeLoading] = useState<Record<string, boolean>>({});
   const [subclaudeError, setSubclaudeError] = useState<Record<string, string>>({});
 
-  // Claude race features
-  const [raceText, setRaceText] = useState('');
+  // Claude race features — seed from localStorage cache on first render
+  const [raceText, setRaceText] = useState(() => cacheGet('race_guide', race) ?? '');
   const [raceLoading, setRaceLoading] = useState(false);
   const [raceError, setRaceError] = useState('');
 
@@ -108,6 +118,14 @@ export default function ClassGuideTab({
   async function loadSubclaudeFeatures(cls: CharClass) {
     const key = `${cls.name}-${cls.subclass}`;
     if (subclaudeText[key] || subclaudeLoading[key]) return;
+
+    // Check localStorage cache first
+    const cached = cacheGet('subclass_guide', key);
+    if (cached) {
+      setSubclaudeText(p => ({ ...p, [key]: cached }));
+      return;
+    }
+
     setSubclaudeLoading(p => ({ ...p, [key]: true }));
     try {
       const r = await fetch('/api/srd/claude', {
@@ -122,7 +140,9 @@ export default function ClassGuideTab({
       });
       if (!r.ok) throw new Error('Claude lookup failed');
       const d = await r.json();
-      setSubclaudeText(p => ({ ...p, [key]: d.result?.text ?? '' }));
+      const text = d.result?.text ?? '';
+      cacheSet('subclass_guide', key, text);
+      setSubclaudeText(p => ({ ...p, [key]: text }));
     } catch (e: any) {
       setSubclaudeError(p => ({ ...p, [key]: e?.message ?? 'Lookup failed' }));
     }
@@ -131,6 +151,14 @@ export default function ClassGuideTab({
 
   async function loadRaceFeatures() {
     if (raceText || raceLoading || !race) return;
+
+    // Check localStorage cache first
+    const cached = cacheGet('race_guide', race);
+    if (cached) {
+      setRaceText(cached);
+      return;
+    }
+
     setRaceLoading(true);
     try {
       const r = await fetch('/api/srd/claude', {
@@ -140,7 +168,9 @@ export default function ClassGuideTab({
       });
       if (!r.ok) throw new Error('Claude lookup failed');
       const d = await r.json();
-      setRaceText(d.result?.text ?? '');
+      const text = d.result?.text ?? '';
+      cacheSet('race_guide', race, text);
+      setRaceText(text);
     } catch (e: any) {
       setRaceError(e?.message ?? 'Lookup failed');
     }
