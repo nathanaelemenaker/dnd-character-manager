@@ -1,7 +1,9 @@
 // app/api/srd/route.ts
 // Server-side proxy for dnd5eapi.co (2014) and open5e.com (2024)
+// Also searches the ClaudeCache table so previously Claude-found spells/items appear here.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +40,21 @@ export async function GET(req: NextRequest) {
 
       const spells: any[] = [];
       const seen = new Set<string>();
+
+      // ── ClaudeCache — previously Claude-fetched spells ───────────────────
+      try {
+        const cachedSpells = await prisma.claudeCache.findMany({
+          where: { type: 'spell', name: { contains: q, mode: 'insensitive' } },
+          take: 6,
+        });
+        for (const row of cachedSpells) {
+          const d = row.data as any;
+          const key = (d.name ?? row.name).toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          spells.push({ ...d, _fromCache: true });
+        }
+      } catch { /* DB unavailable — continue with upstream */ }
 
       // dnd5eapi results — fetch full details for each hit
       if (dnd5eListData.status === 'fulfilled') {
@@ -106,6 +123,17 @@ export async function GET(req: NextRequest) {
 
         const items: any[] = [];
 
+        // ── ClaudeCache — previously Claude-fetched items ────────────────────
+        try {
+          const cachedItems = await prisma.claudeCache.findMany({
+            where: { type: 'item', name: { contains: q, mode: 'insensitive' } },
+            take: 6,
+          });
+          for (const row of cachedItems) {
+            items.push({ ...(row.data as any), _fromCache: true });
+          }
+        } catch { /* DB unavailable — continue */ }
+
         // Mundane equipment from dnd5eapi
         if (equipData.status === 'fulfilled') {
           const hits = (equipData.value.results ?? []).slice(0, 8);
@@ -168,6 +196,17 @@ export async function GET(req: NextRequest) {
         ]);
 
         const items: any[] = [];
+
+        // ── ClaudeCache — previously Claude-fetched items ────────────────────
+        try {
+          const cachedItems = await prisma.claudeCache.findMany({
+            where: { type: 'item', name: { contains: q, mode: 'insensitive' } },
+            take: 6,
+          });
+          for (const row of cachedItems) {
+            items.push({ ...(row.data as any), _fromCache: true });
+          }
+        } catch { /* DB unavailable — continue */ }
 
         // Magic items (open5e) — richest descriptions
         if (magicData.status === 'fulfilled') {

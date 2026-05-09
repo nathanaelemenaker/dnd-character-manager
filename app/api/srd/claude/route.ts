@@ -1,10 +1,27 @@
+// app/api/srd/claude/route.ts
+// Claude AI lookup for D&D 5e content not in the SRD databases.
+// Results are cached in the ClaudeCache table so every unique lookup
+// only ever calls the API once. Pass force:true to regenerate.
+
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getSession } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// ── Cache key helpers ─────────────────────────────────────────────────────────
+function slugify(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+function guideKey(type: 'subclass_guide' | 'race_guide', ...parts: string[]) {
+  return parts.map(slugify).join('-');
+}
+
+// ── Prompts ───────────────────────────────────────────────────────────────────
 
 const SPELL_PROMPT = (name: string) => `
 You are a D&D 5e rules expert. Look up the spell "${name}" from any official D&D 5e sourcebook
@@ -93,12 +110,12 @@ Return ONLY a valid JSON object with these exact fields — no markdown, no expl
 If you don't recognize this as an official D&D 5e monster or NPC, return: {"error": "not_found"}
 `.trim();
 
-const SUBCLASS_GUIDE_PROMPT = (className: string, subclassName: string, currentLevel: number) => `
-You are a D&D 5e rules expert. The player is a ${className} (${subclassName}) at level ${currentLevel}.
-
-List all subclass features they have received so far (levels 1 through ${currentLevel}), plus what
-they will gain at future levels up to level 20. For each feature, give its level, name, and a clear
-description of what it does mechanically.
+// Always return full level 1–20 progression regardless of current level.
+// The client highlights "received so far" based on character level.
+const SUBCLASS_GUIDE_PROMPT = (className: string, subclassName: string) => `
+You are a D&D 5e rules expert. List ALL subclass features for the ${className} (${subclassName})
+subclass from levels 1 through 20. For each feature, give its level, name, and a clear description
+of what it does mechanically.
 
 Format your response as plain text (no JSON, no markdown headers), like this:
 Level 3 — [Feature Name]
@@ -107,7 +124,7 @@ Level 3 — [Feature Name]
 Level 6 — [Feature Name]
 [Description]
 
-...and so on. Be concise but complete. Include all features up through level 20.
+...and so on. Be concise but complete. Include all features from level 1 through level 20.
 `.trim();
 
 const RACE_GUIDE_PROMPT = (raceName: string) => `
@@ -124,47 +141,104 @@ Format your response as plain text (no JSON, no markdown headers), like this:
 Be concise but complete. Include all traits including subraces if applicable.
 `.trim();
 
+// ── DB cache helpers ──────────────────────────────────────────────────────────
+
+async function cacheGet(type: string, key: string) {
+  try {
+    return await prisma.claudeCache.findUnique({
+      where: { type_cacheKey: { type, cacheKey: key } },
+    });
+  } catch { return null; }
+}
+
+async function cacheSet(type: string, key: string, name: string, data: object) {
+  try {
+    await prisma.claudeCache.upsert({
+      where: { type_cacheKey: { type, cacheKey: key } },
+      create: { type, cacheKey: key, name, data: data as any },
+      update: { name, data: data as any, updatedAt: new Date() },
+    });
+  } catch (e) {
+    console.error('[ClaudeCache] save failed:', e);
+  }
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   try {
     const body = await req.json();
-    const { type } = body;
+    const { type, force } = body;
 
     const VALID_TYPES = ['spell', 'item', 'feat', 'monster', 'subclass_guide', 'race_guide'];
     if (!VALID_TYPES.includes(type)) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }
 
-    // Prose (non-JSON) responses for guide types
+    // ── Guide types (prose text responses) ───────────────────────────────────
     if (type === 'subclass_guide') {
-      const { className, subclassName, currentLevel } = body;
+      const { className, subclassName } = body;
       if (!className || !subclassName) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+
+      const key = guideKey('subclass_guide', className, subclassName);
+
+      if (!force) {
+        const cached = await cacheGet('subclass_guide', key);
+        if (cached) {
+          const row = cached.data as any;
+          return NextResponse.json({ result: { text: row.text }, source: 'cache', cachedAt: cached.updatedAt });
+        }
+      }
+
       const message = await client.messages.create({
         model: 'claude-opus-4-7',
         max_tokens: 2048,
-        messages: [{ role: 'user', content: SUBCLASS_GUIDE_PROMPT(className, subclassName, currentLevel ?? 1) }],
+        messages: [{ role: 'user', content: SUBCLASS_GUIDE_PROMPT(className, subclassName) }],
       });
       const text = message.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+      await cacheSet('subclass_guide', key, `${className} — ${subclassName}`, { text });
       return NextResponse.json({ result: { text }, source: 'claude' });
     }
 
     if (type === 'race_guide') {
       const { raceName } = body;
       if (!raceName) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+
+      const key = slugify(raceName);
+
+      if (!force) {
+        const cached = await cacheGet('race_guide', key);
+        if (cached) {
+          const row = cached.data as any;
+          return NextResponse.json({ result: { text: row.text }, source: 'cache', cachedAt: cached.updatedAt });
+        }
+      }
+
       const message = await client.messages.create({
         model: 'claude-opus-4-7',
         max_tokens: 1536,
         messages: [{ role: 'user', content: RACE_GUIDE_PROMPT(raceName) }],
       });
       const text = message.content.filter(b => b.type === 'text').map(b => (b as any).text).join('');
+      await cacheSet('race_guide', key, raceName, { text });
       return NextResponse.json({ result: { text }, source: 'claude' });
     }
 
-    // JSON responses for lookup types (spell / item / feat)
+    // ── Structured JSON lookups (spell / item / feat / monster) ──────────────
     const { name } = body;
     if (!name?.trim()) return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
+
+    const key = slugify(name.trim());
+
+    if (!force) {
+      const cached = await cacheGet(type, key);
+      if (cached) {
+        return NextResponse.json({ result: cached.data, source: 'cache', cachedAt: cached.updatedAt });
+      }
+    }
 
     const prompt =
       type === 'spell'   ? SPELL_PROMPT(name.trim()) :
@@ -178,13 +252,13 @@ export async function POST(req: NextRequest) {
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const text = message.content
+    const rawText = message.content
       .filter(b => b.type === 'text')
       .map(b => (b as any).text)
       .join('');
 
     // Strip any accidental markdown fences
-    const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
 
     let parsed: any;
     try {
@@ -196,6 +270,10 @@ export async function POST(req: NextRequest) {
     if (parsed.error === 'not_found') {
       return NextResponse.json({ error: 'not_found' }, { status: 404 });
     }
+
+    // Save to DB cache — auto-saves regardless of what the user does next.
+    // The result is now available to everyone without another Claude call.
+    await cacheSet(type, key, parsed.name ?? name.trim(), parsed);
 
     return NextResponse.json({ result: parsed, source: 'claude' });
   } catch (e: any) {

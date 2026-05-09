@@ -3549,21 +3549,26 @@ function MonsterTab() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [monster, setMonster] = useState<any>(null);
+  const [monsterSource, setMonsterSource] = useState<'cache' | 'claude' | null>(null);
+  const [monsterCachedAt, setMonsterCachedAt] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  async function lookup() {
+  async function lookup(force = false) {
     if (!query.trim()) return;
-    setLoading(true); setMonster(null); setError('');
+    setLoading(true); setError('');
+    if (!force) { setMonster(null); setMonsterSource(null); setMonsterCachedAt(null); }
     try {
       const r = await fetch('/api/srd/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'monster', name: query.trim() }),
+        body: JSON.stringify({ type: 'monster', name: query.trim(), ...(force && { force: true }) }),
       });
       if (r.status === 404) { setError(`"${query}" not found in official 5e sourcebooks.`); return; }
       if (!r.ok) throw new Error('Lookup failed');
       const d = await r.json();
       setMonster(d.result);
+      setMonsterSource(d.source ?? 'claude');
+      setMonsterCachedAt(d.cachedAt ?? null);
     } catch (e: any) {
       setError(e?.message ?? 'Lookup failed');
     } finally {
@@ -3592,7 +3597,7 @@ function MonsterTab() {
               onKeyDown={e => e.key === 'Enter' && lookup()}
               style={{ flex: 1 }}
             />
-            <button className="ink-btn" onClick={lookup} disabled={loading || !query.trim()}>
+            <button className="ink-btn" onClick={() => lookup()} disabled={loading || !query.trim()}>
               {loading ? '⏳' : '✦ Look Up'}
             </button>
           </div>
@@ -3657,8 +3662,20 @@ function MonsterTab() {
                   <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink-light)', whiteSpace: 'pre-wrap' }}>{monster.legendaryActions}</div>
                 </div>
               )}
-              <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 6, borderTop: '0.5px solid var(--parchment-dark)', paddingTop: 6 }}>
-                ✦ Sourced from Claude's D&D 5e knowledge. Always verify against your sourcebooks.
+              <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 6, borderTop: '0.5px solid var(--parchment-dark)', paddingTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <span>✦ Sourced from Claude's D&D 5e knowledge. Always verify against your sourcebooks.</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {monsterSource === 'cache' && (
+                    <span style={{ fontSize: 9, fontWeight: 700, color: '#2e7d32', background: '#e8f4e8', border: '1px solid #a5d6a7', borderRadius: 3, padding: '1px 5px', letterSpacing: 0.5, fontFamily: 'var(--font-display)', fontStyle: 'normal' }}>
+                      🗄 DATABASE{monsterCachedAt ? ` · ${new Date(monsterCachedAt).toLocaleDateString()}` : ''}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => lookup(true)}
+                    disabled={loading}
+                    style={{ fontSize: 9, color: 'var(--border)', background: 'none', border: '1px solid var(--border-light)', borderRadius: 3, padding: '1px 6px', cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 0.5, fontStyle: 'normal' }}
+                  >↺ Regenerate</button>
+                </div>
               </div>
             </div>
           )}

@@ -2,7 +2,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { cacheGet, cacheSet } from '@/app/lib/claudeCache';
 
 interface CharClass { name: string; subclass: string; level: number; hitDie: number; }
 interface Feature { id?: string; name: string; source: string; desc: string; }
@@ -74,24 +73,19 @@ export default function ClassGuideTab({
   const [expandedSub, setExpandedSub] = useState<string|null>(null);
   const [addingFeature, setAddingFeature] = useState<string|null>(null);
 
-  // Claude subclass features — seed from localStorage cache on first render
-  const [subclaudeText, setSubclaudeText] = useState<Record<string, string>>(() => {
-    const seed: Record<string, string> = {};
-    for (const cls of classes) {
-      if (!cls.subclass) continue;
-      const key = `${cls.name}-${cls.subclass}`;
-      const cached = cacheGet('subclass_guide', key);
-      if (cached) seed[key] = cached;
-    }
-    return seed;
-  });
+  // Claude subclass features
+  const [subclaudeText, setSubclaudeText] = useState<Record<string, string>>({});
   const [subclaudeLoading, setSubclaudeLoading] = useState<Record<string, boolean>>({});
   const [subclaudeError, setSubclaudeError] = useState<Record<string, string>>({});
+  const [subclaudeSource, setSubclaudeSource] = useState<Record<string, 'cache' | 'claude'>>({});
+  const [subclaudeCachedAt, setSubclaudeCachedAt] = useState<Record<string, string>>({});
 
-  // Claude race features — seed from localStorage cache on first render
-  const [raceText, setRaceText] = useState(() => cacheGet('race_guide', race) ?? '');
+  // Claude race features
+  const [raceText, setRaceText] = useState('');
   const [raceLoading, setRaceLoading] = useState(false);
   const [raceError, setRaceError] = useState('');
+  const [raceSource, setRaceSource] = useState<'cache' | 'claude' | null>(null);
+  const [raceCachedAt, setRaceCachedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeClass || data[activeClass] || loadingMap[activeClass]) return;
@@ -115,18 +109,12 @@ export default function ClassGuideTab({
     setLoadingMap((p) => ({ ...p, [name]: false }));
   }
 
-  async function loadSubclaudeFeatures(cls: CharClass) {
+  async function loadSubclaudeFeatures(cls: CharClass, force = false) {
     const key = `${cls.name}-${cls.subclass}`;
-    if (subclaudeText[key] || subclaudeLoading[key]) return;
-
-    // Check localStorage cache first
-    const cached = cacheGet('subclass_guide', key);
-    if (cached) {
-      setSubclaudeText(p => ({ ...p, [key]: cached }));
-      return;
-    }
+    if (!force && (subclaudeText[key] || subclaudeLoading[key])) return;
 
     setSubclaudeLoading(p => ({ ...p, [key]: true }));
+    setSubclaudeError(p => ({ ...p, [key]: '' }));
     try {
       const r = await fetch('/api/srd/claude', {
         method: 'POST',
@@ -135,42 +123,39 @@ export default function ClassGuideTab({
           type: 'subclass_guide',
           className: cls.name,
           subclassName: cls.subclass,
-          currentLevel: cls.level,
+          ...(force && { force: true }),
         }),
       });
       if (!r.ok) throw new Error('Claude lookup failed');
       const d = await r.json();
       const text = d.result?.text ?? '';
-      cacheSet('subclass_guide', key, text);
       setSubclaudeText(p => ({ ...p, [key]: text }));
+      setSubclaudeSource(p => ({ ...p, [key]: d.source ?? 'claude' }));
+      setSubclaudeCachedAt(p => ({ ...p, [key]: d.cachedAt ?? '' }));
     } catch (e: any) {
       setSubclaudeError(p => ({ ...p, [key]: e?.message ?? 'Lookup failed' }));
     }
     setSubclaudeLoading(p => ({ ...p, [key]: false }));
   }
 
-  async function loadRaceFeatures() {
-    if (raceText || raceLoading || !race) return;
-
-    // Check localStorage cache first
-    const cached = cacheGet('race_guide', race);
-    if (cached) {
-      setRaceText(cached);
-      return;
-    }
+  async function loadRaceFeatures(force = false) {
+    if (!force && (raceText || raceLoading || !race)) return;
+    if (!race) return;
 
     setRaceLoading(true);
+    setRaceError('');
     try {
       const r = await fetch('/api/srd/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'race_guide', raceName: race }),
+        body: JSON.stringify({ type: 'race_guide', raceName: race, ...(force && { force: true }) }),
       });
       if (!r.ok) throw new Error('Claude lookup failed');
       const d = await r.json();
       const text = d.result?.text ?? '';
-      cacheSet('race_guide', race, text);
       setRaceText(text);
+      setRaceSource(d.source ?? 'claude');
+      setRaceCachedAt(d.cachedAt ?? null);
     } catch (e: any) {
       setRaceError(e?.message ?? 'Lookup failed');
     }
@@ -243,7 +228,7 @@ export default function ClassGuideTab({
       {/* View toggle */}
       <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
         {MODES.map((m) => (
-          <button key={m.id} onClick={() => { setViewMode(m.id); if (m.id === 'race') loadRaceFeatures(); }}
+          <button key={m.id} onClick={() => { setViewMode(m.id); if (m.id === 'race' && !raceText) loadRaceFeatures(); }}
             style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, letterSpacing:0.5,
               padding:'4px 12px', borderRadius:3, cursor:'pointer', textTransform:'uppercase',
               background: viewMode===m.id ? 'var(--ink)' : 'transparent',
@@ -435,24 +420,40 @@ export default function ClassGuideTab({
               const text = subclaudeText[key];
               const loading = subclaudeLoading[key];
               const error = subclaudeError[key];
+              const src = subclaudeSource[key];
+              const cachedAt = subclaudeCachedAt[key];
               return (
                 <div style={{ marginBottom:12, padding:'10px 12px', background:'rgba(201,162,39,0.06)', border:'1.5px solid var(--gold)', borderRadius:4 }}>
-                  <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--gold)', letterSpacing:1, marginBottom:6 }}>
-                    ✦ {cls.subclass} — NOT IN SRD
+                  <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--gold)', letterSpacing:1, marginBottom:6, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:4 }}>
+                    <span>✦ {cls.subclass} — NOT IN SRD</span>
+                    {text && (
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        {src === 'cache' && (
+                          <span style={{ fontSize:9, fontWeight:600, color:'#2e7d32', background:'#e8f4e8', border:'1px solid #a5d6a7', borderRadius:3, padding:'1px 5px', letterSpacing:0.5 }}>
+                            🗄 DATABASE{cachedAt ? ` · ${new Date(cachedAt).toLocaleDateString()}` : ''}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => loadSubclaudeFeatures(cls, true)}
+                          disabled={loading}
+                          style={{ fontSize:9, color:'var(--border)', background:'none', border:'1px solid var(--border-light)', borderRadius:3, padding:'1px 6px', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:700, letterSpacing:0.5 }}
+                        >↺ Regenerate</button>
+                      </div>
+                    )}
                   </div>
                   {!text && !loading && !error && (
                     <>
                       <div style={{ fontSize:11, color:'var(--border)', fontStyle:'italic', marginBottom:8, lineHeight:1.5 }}>
-                        This subclass isn't in the SRD database. Claude can look up the feature progression for your current level.
+                        This subclass isn't in the SRD database. Claude can look up the feature progression from levels 1–20.
                       </div>
                       <button className="ink-btn" style={{ fontSize:12 }} onClick={() => loadSubclaudeFeatures(cls)}>
                         ✦ Look Up {cls.subclass} Features
                       </button>
                     </>
                   )}
-                  {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic' }}>⏳ Claude is looking up {cls.subclass} features…</div>}
-                  {error && <div style={{ fontSize:12, color:'var(--red)' }}>{error}</div>}
-                  {text && (
+                  {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic' }}>⏳ {text ? 'Regenerating…' : `Claude is looking up ${cls.subclass} features…`}</div>}
+                  {error && <div style={{ fontSize:12, color:'var(--red)', marginBottom: text ? 6 : 0 }}>{error}</div>}
+                  {text && !loading && (
                     <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{text}</div>
                   )}
                 </div>
@@ -523,7 +524,21 @@ export default function ClassGuideTab({
       {viewMode === 'race' && (
         <div style={panel}>
           <div style={ph}>
-            {race || 'Race'} Racial Traits
+            <span>{race || 'Race'} Racial Traits</span>
+            {raceText && (
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                {raceSource === 'cache' && (
+                  <span style={{ fontSize:9, fontWeight:600, color:'#e8f4e8', background:'rgba(46,125,50,0.4)', border:'1px solid rgba(46,125,50,0.6)', borderRadius:3, padding:'1px 5px', letterSpacing:0.5 }}>
+                    🗄 DATABASE{raceCachedAt ? ` · ${new Date(raceCachedAt).toLocaleDateString()}` : ''}
+                  </span>
+                )}
+                <button
+                  onClick={() => loadRaceFeatures(true)}
+                  disabled={raceLoading}
+                  style={{ fontSize:9, color:'#c8b99a', background:'none', border:'1px solid rgba(200,185,154,0.4)', borderRadius:3, padding:'1px 6px', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:700, letterSpacing:0.5 }}
+                >↺ Regenerate</button>
+              </div>
+            )}
           </div>
           <div style={pb}>
             {!race && (
@@ -534,20 +549,20 @@ export default function ClassGuideTab({
             {race && !raceText && !raceLoading && !raceError && (
               <div style={{ textAlign:'center', padding:'12px 0' }}>
                 <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', marginBottom:10 }}>
-                  Racial traits for {race} are not in the SRD database. Claude can look them up.
+                  Racial traits for {race} are not in the SRD database. Claude can look them up from any official sourcebook.
                 </div>
-                <button className="ink-btn" style={{ fontSize:12 }} onClick={loadRaceFeatures}>
+                <button className="ink-btn" style={{ fontSize:12 }} onClick={() => loadRaceFeatures()}>
                   ✦ Look Up {race} Traits
                 </button>
               </div>
             )}
             {raceLoading && (
               <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', padding:'12px 0', textAlign:'center' }}>
-                ⏳ Claude is looking up {race} racial traits…
+                ⏳ {raceText ? 'Regenerating…' : `Claude is looking up ${race} racial traits…`}
               </div>
             )}
-            {raceError && <div style={{ fontSize:12, color:'var(--red)' }}>{raceError}</div>}
-            {raceText && (
+            {raceError && <div style={{ fontSize:12, color:'var(--red)', marginBottom: raceText ? 6 : 0 }}>{raceError}</div>}
+            {raceText && !raceLoading && (
               <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{raceText}</div>
             )}
           </div>

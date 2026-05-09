@@ -304,6 +304,23 @@ model CampaignMember {
   @@unique([campaignId, userId])
 }
 
+// ── Claude AI cache ───────────────────────────────────────────────────────────
+// Shared across all users. Stores results from Claude lookups so we never
+// call the API twice for the same thing. type examples: spell | item | feat |
+// monster | race_guide | subclass_guide
+model ClaudeCache {
+  id        String   @id @default(cuid())
+  type      String
+  cacheKey  String   // slugified lookup key (name or composite)
+  name      String   // display name
+  data      Json     // full result payload
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, cacheKey])
+  @@index([type, name])
+}
+
 model SessionLog {
   id               String    @id @default(cuid())
   campaignId       String
