@@ -16,14 +16,18 @@ export async function PATCH(
       where: { campaignId_userId: { campaignId: params.id, userId: session.userId } },
     });
     const isAdmin = hasRole(session.role, 'ADMIN');
-    if (!isAdmin && callerMembership?.role !== 'DM') {
+    const isSelf = params.memberId === callerMembership?.id;
+    if (!isAdmin && callerMembership?.role !== 'DM' && !isSelf) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const body = await req.json().catch(() => null);
     const data: Record<string, unknown> = {};
     if (body?.characterId !== undefined) data.characterId = body.characterId || null;
-    if (body?.role !== undefined) data.role = body.role === 'DM' ? 'DM' : 'PLAYER';
+    // Only DMs/admins can change role
+    if (body?.role !== undefined && (isAdmin || callerMembership?.role === 'DM')) {
+      data.role = body.role === 'DM' ? 'DM' : 'PLAYER';
+    }
 
     const member = await prisma.campaignMember.update({
       where: { id: params.memberId, campaignId: params.id },

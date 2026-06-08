@@ -7,7 +7,7 @@ import Link from 'next/link';
 interface CampaignMember {
   id: string;
   role: 'DM' | 'PLAYER';
-  user: { id: string; name: string | null; email: string };
+  user: { id: string; name: string | null; email: string; characters: { id: string; name: string }[] };
   character: {
     id: string;
     name: string;
@@ -400,15 +400,15 @@ export default function CampaignDetailPage() {
                     ) : (
                       <div className="empty-state" style={{ textAlign: 'left', padding: 0 }}>No character linked</div>
                     )}
-                    {/* Allow members to link their own character; DM can link anyone's */}
-                    {(isMe || isDM) && (
+                    {/* Allow members to link their own character; DM/admin can link anyone's */}
+                    {(isMe || canManage) && (
                       <select
                         style={{ marginTop: 8, width: '100%', fontSize: 11, padding: '3px 4px', border: '1px solid var(--border-light)', borderRadius: 3 }}
                         value={m.character?.id ?? ''}
                         onChange={e => handleAssignCharacter(m.id, e.target.value)}
                       >
                         <option value="">— link character —</option>
-                        {myCharacters.map(c => (
+                        {m.user.characters.map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>

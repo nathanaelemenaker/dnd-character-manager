@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       include: {
         members: {
           include: {
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: { id: true, name: true, email: true, characters: { select: { id: true, name: true } } } },
             character: {
               select: {
                 id: true, name: true, level: true, portrait: true,
