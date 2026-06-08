@@ -44,7 +44,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const membership = campaign.members.find(m => m.userId === session.userId);
     if (!isAdmin && !membership) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
-    return NextResponse.json({ campaign, membership });
+    return NextResponse.json({ campaign, membership, isAdmin });
   } catch (e) {
     console.error('GET /campaigns/[id] error', e);
     return NextResponse.json({ error: 'internal_error' }, { status: 500 });

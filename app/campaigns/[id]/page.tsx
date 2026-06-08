@@ -41,6 +41,7 @@ export default function CampaignDetailPage() {
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [membership, setMembership] = useState<CampaignMember | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -72,6 +73,7 @@ export default function CampaignDetailPage() {
       const data = await res.json();
       setCampaign(data.campaign);
       setMembership(data.membership ?? null);
+      setIsAdmin(data.isAdmin ?? false);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -89,6 +91,7 @@ export default function CampaignDetailPage() {
   }, []);
 
   const isDM = membership?.role === 'DM';
+  const canManage = isDM || isAdmin;
 
   async function handleNewSession(e: React.FormEvent) {
     e.preventDefault();
@@ -261,7 +264,7 @@ export default function CampaignDetailPage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1.5px solid var(--border-light)', marginBottom: 20, gap: 2 }}>
-        {(['sessions', 'party', 'notes', 'settings'] as const).filter(t => t !== 'settings' || isDM).map(tab => (
+        {(['sessions', 'party', 'notes', 'settings'] as const).filter(t => t !== 'settings' || canManage).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -374,7 +377,7 @@ export default function CampaignDetailPage() {
                 <div key={m.id} className="panel" style={{ padding: 0 }}>
                   <div className="panel-header" style={{ justifyContent: 'space-between' }}>
                     <span>{m.user.name ?? m.user.email}</span>
-                    {isDM && (
+                    {canManage && (
                       <button
                         className="ink-btn ghost"
                         style={{ fontSize: 9, padding: '1px 6px', border: 'none', color: 'rgba(201,162,39,0.5)' }}
@@ -416,7 +419,7 @@ export default function CampaignDetailPage() {
             })}
           </div>
 
-          {isDM && (
+          {canManage && (
             <div style={{ marginTop: 16 }}>
               {showAddMember ? (
                 <form onSubmit={handleAddMember} style={{ maxWidth: 400, background: 'var(--parchment)', border: '1px solid var(--border-light)', borderRadius: 5, padding: 14 }}>
@@ -461,11 +464,11 @@ export default function CampaignDetailPage() {
 
       {/* Campaign Notes tab */}
       {activeTab === 'notes' && (
-        <CampaignNotesTab campaign={campaign} isDM={isDM} onSaved={load} />
+        <CampaignNotesTab campaign={campaign} isDM={canManage} onSaved={load} />
       )}
 
-      {/* Settings tab (DM only) */}
-      {activeTab === 'settings' && isDM && (
+      {/* Settings tab (DM / admin only) */}
+      {activeTab === 'settings' && canManage && (
         <CampaignSettings campaign={campaign} onSaved={load} />
       )}
     </div>
