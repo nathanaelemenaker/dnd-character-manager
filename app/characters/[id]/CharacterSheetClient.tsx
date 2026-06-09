@@ -2139,6 +2139,15 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
               ))}
             </div>
           )}
+          {!selected && searched && !searching && results.length > 0 && (
+            <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
+              {claudeError && <div style={{ fontSize: 11, color: 'var(--red)' }}>{claudeError}</div>}
+              {claudeLoading
+                ? <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>Asking Claude…</div>
+                : <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={askClaude}>✦ Ask Claude instead</button>
+              }
+            </div>
+          )}
           {!selected && searched && !searching && results.length === 0 && (
             <div style={{ padding: '10px 0' }}>
               <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginBottom: 8 }}>
@@ -2589,6 +2598,15 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
                   <div className="result-meta">{it.type} {it.weight ? '· ' + it.weight + ' lb' : ''} {it.cost ? '· ' + it.cost : ''}</div>
                 </div>
               ))}
+            </div>
+          )}
+          {!selected && searched && !searching && results.length > 0 && (
+            <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
+              {claudeError && <div style={{ fontSize: 11, color: 'var(--red)' }}>{claudeError}</div>}
+              {claudeLoading
+                ? <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>Asking Claude…</div>
+                : <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={askClaude}>✦ Ask Claude instead</button>
+              }
             </div>
           )}
           {!selected && searched && !searching && results.length === 0 && (
