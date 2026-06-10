@@ -13,14 +13,6 @@ services:
       timeout: 5s
       retries: 10
 
-  whisper:
-    image: fedirz/faster-whisper-server:latest-cpu
-    restart: unless-stopped
-    volumes:
-      - whisper-cache:/root/.cache/huggingface
-    # Not exposed externally — only the web container calls it
-    # Model is downloaded on first use and cached in the whisper-cache volume
-
   web:
     image: node:20-slim
     working_dir: /app
@@ -40,7 +32,7 @@ services:
         until node -e \"const net=require('net');const s=net.createConnection({host:'db',port:5432},()=>process.exit(0));s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1000);\"; do sleep 1; done &&
         echo 'DB is reachable. Proceeding...' &&
         apt-get update -y &&
-        apt-get install -y --no-install-recommends openssl &&
+        apt-get install -y --no-install-recommends openssl ffmpeg &&
         rm -rf /var/lib/apt/lists/* &&
         git config --global --add safe.directory /app &&
         git pull origin main --ff-only || true &&
@@ -53,5 +45,4 @@ services:
 
 volumes:
   dbdata:
-  whisper-cache:
   audio-uploads:
