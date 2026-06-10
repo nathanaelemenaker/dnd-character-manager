@@ -39,6 +39,7 @@ interface SessionLog {
   generatedOutput: GeneratedOutput | null;
   transcriptStatus: string | null;
   transcriptError: string | null;
+  audioPath: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +67,8 @@ export default function SessionLogPage() {
   const [draftTranscript, setDraftTranscript] = useState('');
   const [savingTranscript, setSavingTranscript] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [retranscribing, setRetranscribing] = useState(false);
+  const [retranscribeError, setRetranscribeError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,6 +86,23 @@ export default function SessionLogPage() {
   }, [params.id, params.sessionId, router]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function handleRetranscribe() {
+    setRetranscribing(true);
+    setRetranscribeError('');
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}/transcribe`, { method: 'PUT' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error === 'audio_file_missing' ? 'Audio file not found on server.' : d.error ?? 'Failed to start transcription');
+      }
+      await load();
+    } catch (e: any) {
+      setRetranscribeError(e.message);
+    } finally {
+      setRetranscribing(false);
+    }
+  }
 
   async function handleGenerate() {
     if (!confirm(log?.generatedOutput ? 'Re-generate the session log? This will overwrite the current output.' : 'Generate the session log now?')) return;
@@ -202,6 +222,21 @@ export default function SessionLogPage() {
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>
             Step 1 — Record or Paste Transcript
           </div>
+          {log.audioPath && !['pending', 'processing'].includes(log.transcriptStatus ?? '') && (
+            <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(201,162,39,0.06)', border: '1.5px solid rgba(201,162,39,0.3)', borderRadius: 5, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 13 }}>🎙</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-light)', flex: 1 }}>A saved recording exists for this session.</span>
+              <button
+                className="ink-btn"
+                style={{ fontSize: 12 }}
+                onClick={handleRetranscribe}
+                disabled={retranscribing}
+              >
+                {retranscribing ? '⏳ Starting…' : '↺ Re-transcribe'}
+              </button>
+              {retranscribeError && <span style={{ fontSize: 11, color: 'var(--red)' }}>{retranscribeError}</span>}
+            </div>
+          )}
           <RecordButton
             campaignId={params.id}
             sessionId={params.sessionId}
