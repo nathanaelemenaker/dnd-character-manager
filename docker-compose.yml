@@ -6,7 +6,8 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: app
-    volumes: [dbdata:/var/lib/postgresql/data]
+    volumes:
+      - /mnt/nas-docker/dnd-sheet/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app"]
       interval: 5s
@@ -17,7 +18,7 @@ services:
     image: fedirz/faster-whisper-server:latest-cpu
     restart: unless-stopped
     volumes:
-      - whisper-cache:/root/.cache/huggingface
+      - /mnt/nas-docker/dnd-sheet/whisper-cache:/root/.cache/huggingface
     environment:
       - WHISPER__MODEL=small
 
@@ -26,8 +27,8 @@ services:
     working_dir: /app
     env_file: .env
     volumes:
-      - .:/app
-      - audio-uploads:/opt/dnd-sheet/audio
+      - /mnt/nas-docker/dnd-sheet:/app
+      - /mnt/nas-docker/dnd-sheet/audio:/opt/dnd-sheet/audio
     ports:
       - "3000:3000"
     depends_on:
@@ -53,7 +54,4 @@ services:
         npm start
       "
 
-volumes:
-  dbdata:
-  whisper-cache:
-  audio-uploads:
+# All persistent data uses NAS bind mounts — no named volumes needed
