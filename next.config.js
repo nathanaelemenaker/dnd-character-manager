@@ -4,7 +4,7 @@ const path = require('path');
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    serverComponentsExternalPackages: ['@node-rs/argon2', 'sharp']
+    serverComponentsExternalPackages: ['@node-rs/argon2', 'sharp', 'undici']
   },
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
