@@ -32,24 +32,56 @@ async function splitIntoChunks(filePath: string, chunkDir: string): Promise<stri
 
 async function transcribeChunk(filePath: string, whisperUrl: string, model: string): Promise<string> {
   const { readFile } = await import('fs/promises');
-  // Use undici directly with timeouts disabled — Next.js patches global fetch with undici's
-  // default headersTimeout of 300s, which fires before Whisper finishes processing long chunks.
-  const { Agent, fetch: undiciFetch } = await import('undici');
-  const audioBuffer = await readFile(filePath);
-  const form = new FormData();
-  form.append('file', new Blob([audioBuffer], { type: 'audio/webm' }), path.basename(filePath));
-  form.append('model', model);
-  form.append('response_format', 'json');
-  form.append('language', 'en');
+  const http = await import('node:http');
 
-  const dispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
-  // @ts-expect-error undici dispatcher is not in the standard RequestInit type
-  const res = await undiciFetch(`${whisperUrl}/v1/audio/transcriptions`, { method: 'POST', body: form, dispatcher });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(`Whisper returned ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  return ((await res.json()).text ?? '').trim();
+  const audioBuffer = await readFile(filePath);
+  const boundary = `----WhisperBoundary${Date.now()}`;
+
+  // Build multipart/form-data body manually — avoids fetch/undici timeout issues
+  const CRLF = '\r\n';
+  const preamble = Buffer.from(
+    `--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="${path.basename(filePath)}"${CRLF}Content-Type: audio/webm${CRLF}${CRLF}`
+  );
+  const middle = Buffer.from(
+    `${CRLF}--${boundary}${CRLF}Content-Disposition: form-data; name="model"${CRLF}${CRLF}${model}` +
+    `${CRLF}--${boundary}${CRLF}Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}json` +
+    `${CRLF}--${boundary}${CRLF}Content-Disposition: form-data; name="language"${CRLF}${CRLF}en` +
+    `${CRLF}--${boundary}--${CRLF}`
+  );
+  const body = Buffer.concat([preamble, audioBuffer, middle]);
+
+  const url = new URL(`${whisperUrl}/v1/audio/transcriptions`);
+
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: url.hostname,
+      port: parseInt(url.port || '80'),
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': body.length,
+      },
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (res.statusCode !== 200) {
+          reject(new Error(`Whisper returned ${res.statusCode}: ${text.slice(0, 200)}`));
+          return;
+        }
+        try {
+          resolve((JSON.parse(text).text ?? '').trim());
+        } catch {
+          reject(new Error(`Invalid JSON from Whisper: ${text.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 async function runTranscription(sessionId: string, filePath: string) {
