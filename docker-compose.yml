@@ -43,7 +43,7 @@ services:
         until node -e \"const net=require('net');const s=net.createConnection({host:'db',port:5432},()=>process.exit(0));s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1000);\"; do sleep 1; done &&
         echo 'DB is reachable. Proceeding...' &&
         apt-get update -y &&
-        apt-get install -y --no-install-recommends openssl ffmpeg git &&
+        apt-get install -y --no-install-recommends openssl ffmpeg git ca-certificates &&
         rm -rf /var/lib/apt/lists/* &&
         git config --global --add safe.directory /app &&
         git -C /app pull origin main --ff-only || true &&
