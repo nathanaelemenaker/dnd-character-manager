@@ -11,18 +11,23 @@ export const maxDuration = 120;
 const AUDIO_DIR = '/opt/dnd-sheet/audio';
 const CHUNK_SECONDS = 600; // split files longer than 10 minutes
 
-async function getAudioDuration(filePath: string): Promise<number> {
-  try {
-    const { execFile } = await import('child_process');
-    const { promisify } = await import('util');
-    const { stdout } = await promisify(execFile)('ffprobe', [
-      '-v', 'quiet', '-print_format', 'json', '-show_streams', filePath,
-    ]);
-    const duration = parseFloat(JSON.parse(stdout).streams?.[0]?.duration ?? '0');
-    return isNaN(duration) ? 0 : duration;
-  } catch {
-    return 0;
-  }
+// Browser-recorded webm files often have no duration metadata, so we always
+// chunk rather than checking duration first.
+async function splitIntoChunks(filePath: string, chunkDir: string): Promise<string[]> {
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  await mkdir(chunkDir, { recursive: true });
+  await promisify(execFile)('ffmpeg', [
+    '-i', filePath,
+    '-f', 'segment', '-segment_time', String(CHUNK_SECONDS),
+    '-reset_timestamps', '1', '-c', 'copy',
+    path.join(chunkDir, 'chunk_%03d.webm'), '-y',
+  ]);
+  const files = await readdir(chunkDir);
+  return files
+    .filter(f => f.startsWith('chunk_') && f.endsWith('.webm'))
+    .sort()
+    .map(f => path.join(chunkDir, f));
 }
 
 async function transcribeChunk(filePath: string, whisperUrl: string, model: string): Promise<string> {
@@ -55,29 +60,12 @@ async function runTranscription(sessionId: string, filePath: string) {
     const whisperUrl = process.env.WHISPER_API_URL ?? 'http://whisper:8000';
     const model = process.env.WHISPER_MODEL ?? 'small';
 
-    const duration = await getAudioDuration(filePath);
+    // Always chunk — browser webm files often have no duration metadata so
+    // we can't reliably check length upfront. Short files produce 1 chunk.
+    chunkFiles = await splitIntoChunks(filePath, chunkDir);
     const parts: string[] = [];
-
-    if (duration > CHUNK_SECONDS) {
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      await mkdir(chunkDir, { recursive: true });
-      await promisify(execFile)('ffmpeg', [
-        '-i', filePath,
-        '-f', 'segment', '-segment_time', String(CHUNK_SECONDS),
-        '-reset_timestamps', '1', '-c', 'copy',
-        path.join(chunkDir, 'chunk_%03d.webm'), '-y',
-      ]);
-      chunkFiles = (await readdir(chunkDir))
-        .filter(f => f.startsWith('chunk_') && f.endsWith('.webm'))
-        .sort()
-        .map(f => path.join(chunkDir, f));
-
-      for (const chunk of chunkFiles) {
-        parts.push(await transcribeChunk(chunk, whisperUrl, model));
-      }
-    } else {
-      parts.push(await transcribeChunk(filePath, whisperUrl, model));
+    for (const chunk of chunkFiles) {
+      parts.push(await transcribeChunk(chunk, whisperUrl, model));
     }
 
     await prisma.sessionLog.update({
