@@ -95,7 +95,7 @@ async function runTranscription(sessionId: string, filePath: string) {
     });
 
     const whisperUrl = process.env.WHISPER_API_URL ?? 'http://whisper:8000';
-    const model = process.env.WHISPER_MODEL ?? 'small';
+    const model = process.env.WHISPER_MODEL ?? 'medium';
 
     // Always chunk — browser webm files often have no duration metadata so
     // we can't reliably check length upfront. Short files produce 1 chunk.

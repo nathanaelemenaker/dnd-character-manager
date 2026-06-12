@@ -328,6 +328,7 @@ model SessionLog {
   sessionNumber    Int
   title            String?
   rawTranscript    String    @default("")
+  corrections      String?
   generatedOutput  Json?
   transcriptStatus String?
   transcriptError  String?

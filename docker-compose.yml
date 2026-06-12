@@ -20,7 +20,7 @@ services:
     volumes:
       - /mnt/nas-docker/dnd-sheet/whisper-cache:/root/.cache/huggingface
     environment:
-      - WHISPER__MODEL=small
+      - WHISPER__MODEL=medium
 
   web:
     image: node:20-slim

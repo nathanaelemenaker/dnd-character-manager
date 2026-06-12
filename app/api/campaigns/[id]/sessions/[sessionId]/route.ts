@@ -48,6 +48,7 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     if (typeof body.rawTranscript === 'string') data.rawTranscript = body.rawTranscript;
     if (typeof body.title === 'string') data.title = body.title || null;
+    if (typeof body.corrections === 'string') data.corrections = body.corrections || null;
 
     const log = await prisma.sessionLog.update({
       where: { id: params.sessionId, campaignId: params.id },

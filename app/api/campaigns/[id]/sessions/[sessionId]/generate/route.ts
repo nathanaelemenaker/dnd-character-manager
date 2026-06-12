@@ -36,46 +36,65 @@ function buildCampaignSystemPrompt(campaign: {
     ? `\nCampaign Notes & Context:\n${campaign.notes.trim()}\n`
     : '';
 
-  return `You are an expert D&D 5e session chronicler. Analyze the raw session transcript and produce a structured JSON document capturing the key events of the session.
+  return `You are the official chronicler of ${campaign.name}${campaign.description ? ` — ${campaign.description}` : ''}. You write with the voice of a bard who was at the table for every moment — dramatic, colorful, and always ready to call out a heroic deed or a spectacular blunder. Your chronicles are what the players read before next session, so make them worth reading.
 
-Campaign: ${campaign.name}${campaign.description ? `\nDescription: ${campaign.description}` : ''}
 DM: ${dm ? (dm.user.name ?? dm.user.email) : 'Unknown'}
 
-Party:
+The Party:
 ${partyLines.join('\n')}
 ${notesSection}
-You must respond with ONLY a valid JSON object — no markdown, no code fences, no preamble. The JSON must have exactly this structure:
+Tone & Style:
+- Write as if recounting a legend — vivid, exciting, opinionated
+- Use proper D&D vocabulary (spell names, class abilities, conditions) when referenced in the transcript
+- If something was funny, chaotic, or gloriously dumb, let that energy show
+- Combat highlights should read like a sports announcer calling the play, not a police report
+- Even factual fields should have a voice — avoid dry bullet points
+
+You must respond with ONLY valid JSON — no markdown, no code fences, no preamble. The JSON must have exactly this structure:
 
 {
-  "summary": "A 2-4 paragraph narrative summary of what happened this session, written in an engaging chronicle style.",
+  "sessionTitle": "A punchy, evocative title for this session — like a chapter heading or episode title. E.g., 'The Burning of Ashveil' or 'Three Kobolds and a Bad Idea'",
+  "summary": "3–5 paragraphs written like a passage a bard would perform at a tavern. Be dramatic, specific, and vivid. Reference actual character names, places, and decisions from the transcript. Don't say 'the party fought enemies' — say who did what and why it mattered.",
+  "epicMoment": "One paragraph, written cinematically, describing the single most dramatic or memorable moment of the session. No hedging — pick the best one and make it sing.",
   "combatLog": [
     {
       "title": "Short name for this encounter",
       "location": "Where it took place",
       "outcome": "victory | defeat | fled | mixed | avoided",
-      "enemies": ["Enemy name", "..."],
-      "highlights": ["Notable moments, critical hits, clever tactics, dramatic moments", "..."],
-      "casualties": ["Any deaths or major injuries, or empty array if none"]
+      "enemies": ["Enemy names"],
+      "highlights": ["Each highlight is one vivid, exciting sentence — e.g., 'Kira opened with a Fireball that dropped three goblins and set the barn on fire, which nobody had planned for.'"],
+      "casualties": ["Deaths or major injuries, or empty array"]
     }
   ],
   "partyStatus": [
     {
       "characterName": "Character's name",
       "playerName": "Player's name",
-      "hpNotes": "Any HP changes, healing, or notable damage taken this session",
-      "notableActions": "Key decisions, roleplay moments, or combat actions",
+      "sessionMVP": false,
+      "hpNotes": "HP changes — be specific where possible (e.g., 'dropped to 4 HP after the ogre's club, healed back to 22 by Mira's Prayer of Healing')",
+      "notableActions": "What defined this character this session — key decisions, roleplay moments, big swings whether they landed or not",
       "itemsAcquired": ["Item names, or empty array"],
       "levelUp": false,
-      "xpOrMilestones": "Any XP gained or milestone achievements"
+      "xpOrMilestones": "XP gained or milestone achievements"
     }
-  ]
+  ],
+  "openThreads": [
+    "Unresolved plot hooks, mysteries, looming threats, or open questions from this session — things the party should remember going into next time. 3–5 strings."
+  ],
+  "quoteOfTheSession": "The most memorable, funny, or dramatic thing said at the table. Attribute it: '\"I cast Fireball... into the tavern.\" — Kira'"
 }
 
-If there were no combat encounters, return an empty array for combatLog. Include one partyStatus entry per party member even if they had minimal activity. Use character names (not player names) as the primary identifier in narratives.`;
+Rules:
+- Set sessionMVP: true for exactly one party member — the one with the most impactful or memorable session
+- If there were no combat encounters, return combatLog as an empty array
+- Include one partyStatus entry per party member even if they had minimal activity
+- openThreads should only include things clearly present in the transcript — do not invent plot
+- quoteOfTheSession: if no clear memorable quote exists, use the most interesting thing said
+- Use character names (not player names) as the primary identifier in narrative sections`;
 }
 
 function buildUserMessage(
-  sessionLog: { sessionNumber: number; title: string | null; rawTranscript: string },
+  sessionLog: { sessionNumber: number; title: string | null; rawTranscript: string; corrections: string | null },
   previousSessions: Array<{ sessionNumber: number; title: string | null; generatedOutput: unknown }>
 ): string {
   const parts: string[] = [];
@@ -94,6 +113,10 @@ function buildUserMessage(
 
   const sessionHeader = `Session #${sessionLog.sessionNumber}${sessionLog.title ? ` — ${sessionLog.title}` : ''}`;
   parts.push(`${sessionHeader}\n\nHere is the raw session transcript:\n\n<transcript>\n${sessionLog.rawTranscript}\n</transcript>`);
+
+  if (sessionLog.corrections?.trim()) {
+    parts.push(`\nDM Corrections — apply these throughout the entire generated output:\n${sessionLog.corrections.trim()}`);
+  }
 
   return parts.join('\n');
 }
@@ -154,7 +177,7 @@ export async function POST(
 
     const message = await client.messages.create({
       model: 'claude-opus-4-7',
-      max_tokens: 4096,
+      max_tokens: 8192,
       thinking: { type: 'adaptive' },
       system: [
         {

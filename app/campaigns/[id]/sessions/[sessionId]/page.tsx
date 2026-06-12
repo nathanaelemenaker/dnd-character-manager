@@ -17,6 +17,7 @@ interface CombatEncounter {
 interface PartyMemberStatus {
   characterName: string;
   playerName: string;
+  sessionMVP: boolean;
   hpNotes: string;
   notableActions: string;
   itemsAcquired: string[];
@@ -25,9 +26,13 @@ interface PartyMemberStatus {
 }
 
 interface GeneratedOutput {
+  sessionTitle?: string;
   summary: string;
+  epicMoment?: string;
   combatLog: CombatEncounter[];
   partyStatus: PartyMemberStatus[];
+  openThreads?: string[];
+  quoteOfTheSession?: string;
 }
 
 interface SessionLog {
@@ -36,6 +41,7 @@ interface SessionLog {
   sessionNumber: number;
   title: string | null;
   rawTranscript: string;
+  corrections: string | null;
   generatedOutput: GeneratedOutput | null;
   transcriptStatus: string | null;
   transcriptError: string | null;
@@ -69,6 +75,10 @@ export default function SessionLogPage() {
   const [deleting, setDeleting] = useState(false);
   const [retranscribing, setRetranscribing] = useState(false);
   const [retranscribeError, setRetranscribeError] = useState('');
+  const [showCorrections, setShowCorrections] = useState(false);
+  const [editingCorrections, setEditingCorrections] = useState(false);
+  const [draftCorrections, setDraftCorrections] = useState('');
+  const [savingCorrections, setSavingCorrections] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,6 +88,7 @@ export default function SessionLogPage() {
       if (!res.ok) throw new Error('Failed to load session');
       const data = await res.json();
       setLog(data.session);
+      setDraftCorrections(data.session.corrections ?? '');
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -105,7 +116,11 @@ export default function SessionLogPage() {
   }
 
   async function handleGenerate() {
-    if (!confirm(log?.generatedOutput ? 'Re-generate the session log? This will overwrite the current output.' : 'Generate the session log now?')) return;
+    const hasCorrections = log?.corrections?.trim();
+    const confirmMsg = log?.generatedOutput
+      ? (hasCorrections ? 'Re-generate with DM corrections applied? This will overwrite the current output.' : 'Re-generate the session log? This will overwrite the current output.')
+      : 'Generate the session log now?';
+    if (!confirm(confirmMsg)) return;
     setGenerating(true);
     setGenError('');
     try {
@@ -132,6 +147,24 @@ export default function SessionLogPage() {
     router.replace(`/campaigns/${params.id}`);
   }
 
+  async function handleSaveCorrections() {
+    setSavingCorrections(true);
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ corrections: draftCorrections }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      setLog(prev => prev ? { ...prev, corrections: draftCorrections || null } : prev);
+      setEditingCorrections(false);
+    } catch {
+      // keep editing open
+    } finally {
+      setSavingCorrections(false);
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ maxWidth: 860, margin: '0 auto', padding: '40px 16px', textAlign: 'center', color: 'var(--border)', fontStyle: 'italic' }}>
@@ -151,6 +184,7 @@ export default function SessionLogPage() {
   const output = log.generatedOutput as GeneratedOutput | null;
   const hasTranscript = log.rawTranscript.trim().length > 0;
   const isTranscribing = log.transcriptStatus === 'pending' || log.transcriptStatus === 'processing';
+  const hasCorrections = !!log.corrections?.trim();
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
@@ -164,7 +198,7 @@ export default function SessionLogPage() {
       </div>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 4 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span
@@ -197,7 +231,11 @@ export default function SessionLogPage() {
             title={!hasTranscript && !output ? 'Add a transcript first' : undefined}
             style={{ fontSize: 12, opacity: (!hasTranscript && !output) ? 0.5 : 1 }}
           >
-            {generating ? '⏳ Generating…' : output ? '↺ Regenerate' : '✦ Generate Log'}
+            {generating
+              ? '⏳ Generating…'
+              : output
+                ? (hasCorrections ? '↺ Regenerate with Corrections' : '↺ Regenerate')
+                : '✦ Generate Log'}
           </button>
           <button
             className="ink-btn danger"
@@ -210,13 +248,22 @@ export default function SessionLogPage() {
         </div>
       </div>
 
+      {/* Session title from Claude */}
+      {output?.sessionTitle && (
+        <div style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--gold)', marginBottom: 20, marginTop: 6, opacity: 0.9 }}>
+          "{output.sessionTitle}"
+        </div>
+      )}
+
+      {!output?.sessionTitle && <div style={{ marginBottom: 20 }} />}
+
       {genError && (
         <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 16, padding: '8px 12px', background: 'rgba(139,26,26,0.06)', borderRadius: 4 }}>
           Generation failed: {genError}
         </div>
       )}
 
-      {/* Recording section — always shown unless transcript is ready and log is generated */}
+      {/* Recording section */}
       {!output && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>
@@ -334,34 +381,93 @@ export default function SessionLogPage() {
                 border: '1.5px solid var(--border-light)',
                 borderRadius: 6,
                 padding: '24px 28px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 24,
               }}
             >
-              <div
-                style={{
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: 'var(--border)',
-                  letterSpacing: 2,
-                  textTransform: 'uppercase',
-                  marginBottom: 16,
-                  paddingBottom: 8,
-                  borderBottom: '1px solid var(--border-light)',
-                }}
-              >
-                ✦ Session Chronicle ✦
+              {/* Chronicle */}
+              <div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: 'var(--border)',
+                    letterSpacing: 2,
+                    textTransform: 'uppercase',
+                    marginBottom: 16,
+                    paddingBottom: 8,
+                    borderBottom: '1px solid var(--border-light)',
+                  }}
+                >
+                  ✦ Session Chronicle ✦
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 16,
+                    lineHeight: 1.8,
+                    color: 'var(--ink)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {output.summary}
+                </div>
               </div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  fontSize: 16,
-                  lineHeight: 1.8,
-                  color: 'var(--ink)',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {output.summary}
-              </div>
+
+              {/* Epic Moment */}
+              {output.epicMoment && (
+                <div
+                  style={{
+                    background: 'rgba(201,162,39,0.06)',
+                    border: '1.5px solid rgba(201,162,39,0.35)',
+                    borderRadius: 6,
+                    padding: '16px 20px',
+                  }}
+                >
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--gold)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10 }}>
+                    ⚔ Epic Moment
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, lineHeight: 1.75, color: 'var(--ink)', fontStyle: 'italic' }}>
+                    {output.epicMoment}
+                  </div>
+                </div>
+              )}
+
+              {/* Quote of the Session */}
+              {output.quoteOfTheSession && (
+                <div
+                  style={{
+                    borderLeft: '3px solid var(--gold)',
+                    paddingLeft: 16,
+                    marginLeft: 4,
+                  }}
+                >
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8 }}>
+                    Quote of the Session
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, lineHeight: 1.7, color: 'var(--ink)', fontStyle: 'italic' }}>
+                    {output.quoteOfTheSession}
+                  </div>
+                </div>
+              )}
+
+              {/* Open Threads */}
+              {output.openThreads && output.openThreads.length > 0 && (
+                <div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid var(--border-light)' }}>
+                    🧵 Open Threads
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {output.openThreads.map((thread, i) => (
+                      <li key={i} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--ink-light)' }}>
+                        {thread}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
@@ -475,16 +581,21 @@ export default function SessionLogPage() {
                     key={i}
                     style={{
                       background: 'var(--parchment)',
-                      border: '1.5px solid var(--border-light)',
+                      border: m.sessionMVP ? '1.5px solid rgba(201,162,39,0.6)' : '1.5px solid var(--border-light)',
                       borderRadius: 6,
                       overflow: 'hidden',
                     }}
                   >
                     <div style={{ background: 'var(--ink)', padding: '10px 14px' }}>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--gold-light)', fontWeight: 700 }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--gold-light)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
                         {m.characterName}
+                        {m.sessionMVP && (
+                          <span style={{ fontSize: 10, color: '#ffdd44', background: 'rgba(255,221,68,0.15)', padding: '1px 6px', borderRadius: 2, border: '1px solid rgba(255,221,68,0.4)' }}>
+                            ★ MVP
+                          </span>
+                        )}
                         {m.levelUp && (
-                          <span style={{ marginLeft: 8, fontSize: 10, color: '#ffdd44', background: 'rgba(255,221,68,0.15)', padding: '1px 5px', borderRadius: 2, border: '1px solid rgba(255,221,68,0.3)' }}>
+                          <span style={{ fontSize: 10, color: '#ffdd44', background: 'rgba(255,221,68,0.15)', padding: '1px 5px', borderRadius: 2, border: '1px solid rgba(255,221,68,0.3)' }}>
                             LEVEL UP ⬆
                           </span>
                         )}
@@ -544,8 +655,116 @@ export default function SessionLogPage() {
         </>
       )}
 
+      {/* DM Corrections */}
+      {(output || hasTranscript) && (
+        <div style={{ marginTop: 28, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              className="ink-btn ghost"
+              style={{ fontSize: 11 }}
+              onClick={() => {
+                if (!showCorrections) {
+                  setDraftCorrections(log.corrections ?? '');
+                  setEditingCorrections(false);
+                }
+                setShowCorrections(v => !v);
+              }}
+            >
+              {showCorrections ? '▲ Hide Corrections' : '▼ DM Corrections'}
+            </button>
+            {hasCorrections && !showCorrections && (
+              <span style={{ fontSize: 11, color: 'var(--gold)', fontStyle: 'italic', opacity: 0.8 }}>
+                {(log.corrections ?? '').split('\n').filter(Boolean).length} note{(log.corrections ?? '').split('\n').filter(Boolean).length !== 1 ? 's' : ''} saved
+              </span>
+            )}
+          </div>
+          {showCorrections && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, color: 'var(--border)', marginBottom: 10, fontStyle: 'italic' }}>
+                Note corrections for the next regeneration — e.g. "Hypnotic Pattern was cast by Alott, not Rhonwen."
+              </div>
+              {!editingCorrections ? (
+                <>
+                  {log.corrections?.trim() ? (
+                    <pre
+                      style={{
+                        background: 'var(--parchment-dark)',
+                        border: '1px solid rgba(201,162,39,0.25)',
+                        borderRadius: 4,
+                        padding: '14px 16px',
+                        fontSize: 12,
+                        fontFamily: 'var(--font-body)',
+                        color: 'var(--ink-light)',
+                        lineHeight: 1.7,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxHeight: 300,
+                        overflowY: 'auto',
+                        margin: 0,
+                      }}
+                    >
+                      {log.corrections}
+                    </pre>
+                  ) : (
+                    <div style={{ fontSize: 13, color: 'var(--border)', fontStyle: 'italic', padding: '12px 0' }}>
+                      No corrections yet.
+                    </div>
+                  )}
+                  <button
+                    className="ink-btn ghost"
+                    style={{ fontSize: 11, marginTop: 8 }}
+                    onClick={() => { setDraftCorrections(log.corrections ?? ''); setEditingCorrections(true); }}
+                  >
+                    ✏ {log.corrections?.trim() ? 'Edit Corrections' : 'Add Corrections'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <textarea
+                    style={{
+                      width: '100%',
+                      border: '1px solid rgba(201,162,39,0.4)',
+                      borderRadius: 4,
+                      padding: '12px 14px',
+                      fontSize: 13,
+                      fontFamily: 'var(--font-body)',
+                      lineHeight: 1.7,
+                      resize: 'vertical',
+                      minHeight: 120,
+                      boxSizing: 'border-box',
+                      background: 'var(--parchment)',
+                    }}
+                    value={draftCorrections}
+                    onChange={e => setDraftCorrections(e.target.value)}
+                    placeholder={'One correction per line, e.g.:\nHypnotic Pattern was cast by Alott (Julie), not Rhonwen\nThe party found the amulet before the fight, not after'}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      className="ink-btn"
+                      style={{ fontSize: 11 }}
+                      disabled={savingCorrections}
+                      onClick={handleSaveCorrections}
+                    >
+                      {savingCorrections ? 'Saving…' : 'Save Corrections'}
+                    </button>
+                    <button
+                      className="ink-btn ghost"
+                      style={{ fontSize: 11 }}
+                      onClick={() => setEditingCorrections(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Raw Transcript toggle */}
-      <div style={{ marginTop: 28, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
+      <div style={{ marginTop: 16, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <button
             className="ink-btn ghost"
