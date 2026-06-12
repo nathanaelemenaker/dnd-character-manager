@@ -32,6 +32,9 @@ async function splitIntoChunks(filePath: string, chunkDir: string): Promise<stri
 
 async function transcribeChunk(filePath: string, whisperUrl: string, model: string): Promise<string> {
   const { readFile } = await import('fs/promises');
+  // Use undici directly with timeouts disabled — Next.js patches global fetch with undici's
+  // default headersTimeout of 300s, which fires before Whisper finishes processing long chunks.
+  const { Agent, fetch: undiciFetch } = await import('undici');
   const audioBuffer = await readFile(filePath);
   const form = new FormData();
   form.append('file', new Blob([audioBuffer], { type: 'audio/webm' }), path.basename(filePath));
@@ -39,7 +42,9 @@ async function transcribeChunk(filePath: string, whisperUrl: string, model: stri
   form.append('response_format', 'json');
   form.append('language', 'en');
 
-  const res = await fetch(`${whisperUrl}/v1/audio/transcriptions`, { method: 'POST', body: form });
+  const dispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+  // @ts-expect-error undici dispatcher is not in the standard RequestInit type
+  const res = await undiciFetch(`${whisperUrl}/v1/audio/transcriptions`, { method: 'POST', body: form, dispatcher });
   if (!res.ok) {
     const errText = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(`Whisper returned ${res.status}: ${errText.slice(0, 200)}`);
