@@ -260,7 +260,7 @@ model InventoryItem {
   itemDefId   String
 
   character Character      @relation(fields: [characterId], references: [id], onDelete: Cascade)
-  itemDef   ItemDefinition @relation(fields: [itemDefId], references: [id])
+  itemDef   ItemDefinition @relation(fields: [itemDefId], references: [id], onDelete: Cascade)
 
   quantity    Int     @default(1)
   attuned     Boolean @default(false)
