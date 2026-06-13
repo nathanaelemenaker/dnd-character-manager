@@ -19,10 +19,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const body = await req.json().catch(() => null);
     const targetEmail = (body?.email ?? '').toString().trim().toLowerCase();
+    const guestName = (body?.guestName ?? '').toString().trim();
     const characterId = body?.characterId ?? null;
     const role = body?.role === 'DM' ? 'DM' : 'PLAYER';
 
-    if (!targetEmail) return NextResponse.json({ error: 'email required' }, { status: 400 });
+    if (targetEmail && guestName) {
+      return NextResponse.json({ error: 'provide either email or guestName, not both' }, { status: 400 });
+    }
+    if (!targetEmail && !guestName) {
+      return NextResponse.json({ error: 'email or guestName required' }, { status: 400 });
+    }
+
+    if (guestName) {
+      const member = await prisma.campaignMember.create({
+        data: { campaignId: params.id, guestName, role, characterId },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          character: { select: { id: true, name: true } },
+        },
+      });
+      return NextResponse.json(member, { status: 201 });
+    }
 
     const targetUser = await prisma.user.findFirst({
       where: { email: targetEmail, deletedAt: null },

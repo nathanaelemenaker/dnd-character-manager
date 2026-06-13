@@ -295,8 +295,9 @@ model CampaignMember {
   id          String       @id @default(cuid())
   campaignId  String
   campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User         @relation(fields: [userId], references: [id])
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id])
+  guestName   String?
   characterId String?
   character   Character?   @relation(fields: [characterId], references: [id], onDelete: SetNull)
   role        CampaignRole @default(PLAYER)

@@ -7,7 +7,9 @@ import Link from 'next/link';
 interface CampaignMember {
   id: string;
   role: 'DM' | 'PLAYER';
-  user: { id: string; name: string | null; email: string; characters: { id: string; name: string }[] };
+  userId: string | null;
+  guestName: string | null;
+  user: { id: string; name: string | null; email: string; characters: { id: string; name: string }[] } | null;
   character: {
     id: string;
     name: string;
@@ -15,6 +17,10 @@ interface CampaignMember {
     portrait: string | null;
     classes: Array<{ classKey: string; level: number }>;
   } | null;
+}
+
+function memberDisplayName(m: CampaignMember): string {
+  return m.guestName ?? m.user?.name ?? m.user?.email ?? 'Unknown';
 }
 
 interface SessionSummary {
@@ -56,10 +62,16 @@ export default function CampaignDetailPage() {
 
   // Add member form
   const [showAddMember, setShowAddMember] = useState(false);
+  const [addMemberMode, setAddMemberMode] = useState<'email' | 'guest'>('email');
   const [memberEmail, setMemberEmail] = useState('');
+  const [memberGuestName, setMemberGuestName] = useState('');
   const [memberRole, setMemberRole] = useState<'PLAYER' | 'DM'>('PLAYER');
   const [addingMember, setAddingMember] = useState(false);
   const [addMemberError, setAddMemberError] = useState('');
+  const [linkingMemberId, setLinkingMemberId] = useState<string | null>(null);
+  const [linkEmail, setLinkEmail] = useState('');
+  const [linkingInProgress, setLinkingInProgress] = useState(false);
+  const [linkError, setLinkError] = useState('');
 
   const [myCharacters, setMyCharacters] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedCharId, setSelectedCharId] = useState('');
@@ -123,24 +135,57 @@ export default function CampaignDetailPage() {
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault();
-    if (!memberEmail.trim()) return;
+    const isGuest = addMemberMode === 'guest';
+    const value = isGuest ? memberGuestName.trim() : memberEmail.trim();
+    if (!value) return;
     setAddingMember(true);
     setAddMemberError('');
     try {
+      const body = isGuest
+        ? { guestName: value, role: memberRole }
+        : { email: value, role: memberRole };
       const res = await fetch(`/api/campaigns/${params.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: memberEmail.trim(), role: memberRole }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to add member');
       setMemberEmail('');
+      setMemberGuestName('');
       setShowAddMember(false);
       load();
     } catch (e: any) {
       setAddMemberError(e.message === 'user_not_found' ? 'No user found with that email.' : e.message);
     } finally {
       setAddingMember(false);
+    }
+  }
+
+  async function handleLinkAccount(e: React.FormEvent) {
+    e.preventDefault();
+    if (!linkingMemberId || !linkEmail.trim()) return;
+    setLinkingInProgress(true);
+    setLinkError('');
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/members/${linkingMemberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: linkEmail.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'user_not_found') throw new Error('No account found with that email.');
+        if (data.error === 'user_already_member') throw new Error('That user is already in this campaign.');
+        throw new Error(data.error ?? 'Failed to link account');
+      }
+      setLinkingMemberId(null);
+      setLinkEmail('');
+      load();
+    } catch (e: any) {
+      setLinkError(e.message);
+    } finally {
+      setLinkingInProgress(false);
     }
   }
 
@@ -187,7 +232,7 @@ export default function CampaignDetailPage() {
               </p>
             )}
             <div style={{ display: 'flex', gap: 14, marginTop: 8, fontSize: 12, color: 'var(--border)' }}>
-              {dm && <span>DM: <strong style={{ color: 'var(--ink)' }}>{dm.user.name ?? dm.user.email}</strong></span>}
+              {dm && <span>DM: <strong style={{ color: 'var(--ink)' }}>{memberDisplayName(dm)}</strong></span>}
               <span>{players.length} player{players.length !== 1 ? 's' : ''}</span>
               <span>{campaign._count.sessions} session{campaign._count.sessions !== 1 ? 's' : ''}</span>
             </div>
@@ -364,19 +409,30 @@ export default function CampaignDetailPage() {
                 </div>
                 <div className="panel-body">
                   <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--ink)' }}>
-                    {dm.user.name ?? dm.user.email}
+                    {memberDisplayName(dm)}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--border)', marginTop: 2 }}>{dm.user.email}</div>
+                  {dm.user && (
+                    <div style={{ fontSize: 11, color: 'var(--border)', marginTop: 2 }}>{dm.user.email}</div>
+                  )}
                 </div>
               </div>
             )}
             {players.map(m => {
               const classStr = m.character?.classes.map(c => c.classKey).join('/') ?? '';
-              const isMe = m.user.id === membership?.user?.id;
+              const isGuest = !m.userId;
+              const isMe = !isGuest && m.user?.id === membership?.userId;
+              const isLinking = linkingMemberId === m.id;
               return (
                 <div key={m.id} className="panel" style={{ padding: 0 }}>
                   <div className="panel-header" style={{ justifyContent: 'space-between' }}>
-                    <span>{m.user.name ?? m.user.email}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {memberDisplayName(m)}
+                      {isGuest && (
+                        <span style={{ fontSize: 9, background: 'var(--border-light)', color: 'var(--border)', borderRadius: 3, padding: '1px 5px', fontFamily: 'var(--font-body)', fontWeight: 'normal', letterSpacing: 0 }}>
+                          guest
+                        </span>
+                      )}
+                    </span>
                     {canManage && (
                       <button
                         className="ink-btn ghost"
@@ -388,30 +444,73 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
                   <div className="panel-body">
-                    {m.character ? (
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--ink)' }}>
-                          {m.character.name}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--border)', marginTop: 2 }}>
-                          Level {m.character.level} {classStr}
-                        </div>
-                      </div>
+                    {isGuest ? (
+                      <>
+                        <div className="empty-state" style={{ textAlign: 'left', padding: 0 }}>No account linked</div>
+                        {canManage && !isLinking && (
+                          <button
+                            className="ink-btn ghost"
+                            style={{ marginTop: 6, fontSize: 10 }}
+                            onClick={() => { setLinkingMemberId(m.id); setLinkEmail(''); setLinkError(''); }}
+                          >
+                            Link Account
+                          </button>
+                        )}
+                        {canManage && isLinking && (
+                          <form onSubmit={handleLinkAccount} style={{ marginTop: 8 }}>
+                            <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                              <input
+                                style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 3, padding: '3px 6px', fontSize: 11 }}
+                                type="email"
+                                placeholder="player@email.com"
+                                value={linkEmail}
+                                onChange={e => setLinkEmail(e.target.value)}
+                                autoFocus
+                              />
+                              <button type="submit" className="ink-btn" style={{ fontSize: 10 }} disabled={linkingInProgress}>
+                                {linkingInProgress ? '…' : 'Link'}
+                              </button>
+                              <button
+                                type="button"
+                                className="ink-btn ghost"
+                                style={{ fontSize: 10 }}
+                                onClick={() => setLinkingMemberId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            {linkError && <div style={{ color: 'var(--red)', fontSize: 11 }}>{linkError}</div>}
+                          </form>
+                        )}
+                      </>
                     ) : (
-                      <div className="empty-state" style={{ textAlign: 'left', padding: 0 }}>No character linked</div>
-                    )}
-                    {/* Allow members to link their own character; DM/admin can link anyone's */}
-                    {(isMe || canManage) && (
-                      <select
-                        style={{ marginTop: 8, width: '100%', fontSize: 11, padding: '3px 4px', border: '1px solid var(--border-light)', borderRadius: 3 }}
-                        value={m.character?.id ?? ''}
-                        onChange={e => handleAssignCharacter(m.id, e.target.value)}
-                      >
-                        <option value="">— link character —</option>
-                        {m.user.characters.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                      <>
+                        {m.character ? (
+                          <div>
+                            <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--ink)' }}>
+                              {m.character.name}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--border)', marginTop: 2 }}>
+                              Level {m.character.level} {classStr}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="empty-state" style={{ textAlign: 'left', padding: 0 }}>No character linked</div>
+                        )}
+                        {/* Allow members to link their own character; DM/admin can link anyone's */}
+                        {(isMe || canManage) && m.user && (
+                          <select
+                            style={{ marginTop: 8, width: '100%', fontSize: 11, padding: '3px 4px', border: '1px solid var(--border-light)', borderRadius: 3 }}
+                            value={m.character?.id ?? ''}
+                            onChange={e => handleAssignCharacter(m.id, e.target.value)}
+                          >
+                            <option value="">— link character —</option>
+                            {m.user.characters.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -423,16 +522,45 @@ export default function CampaignDetailPage() {
             <div style={{ marginTop: 16 }}>
               {showAddMember ? (
                 <form onSubmit={handleAddMember} style={{ maxWidth: 400, background: 'var(--parchment)', border: '1px solid var(--border-light)', borderRadius: 5, padding: 14 }}>
-                  <div className="field-label" style={{ marginBottom: 6 }}>Add Member by Email</div>
+                  <div style={{ display: 'flex', gap: 0, marginBottom: 10, border: '1px solid var(--border-light)', borderRadius: 3, overflow: 'hidden', width: 'fit-content' }}>
+                    {(['email', 'guest'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => { setAddMemberMode(mode); setAddMemberError(''); }}
+                        style={{
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          border: 'none',
+                          background: addMemberMode === mode ? 'var(--gold)' : 'transparent',
+                          color: addMemberMode === mode ? '#fff' : 'var(--ink)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {mode === 'email' ? 'By Email' : 'Guest (no account)'}
+                      </button>
+                    ))}
+                  </div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                    <input
-                      style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 3, padding: '5px 8px', fontSize: 13 }}
-                      value={memberEmail}
-                      onChange={e => setMemberEmail(e.target.value)}
-                      placeholder="user@email.com"
-                      type="email"
-                      autoFocus
-                    />
+                    {addMemberMode === 'email' ? (
+                      <input
+                        style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 3, padding: '5px 8px', fontSize: 13 }}
+                        value={memberEmail}
+                        onChange={e => setMemberEmail(e.target.value)}
+                        placeholder="user@email.com"
+                        type="email"
+                        autoFocus
+                      />
+                    ) : (
+                      <input
+                        style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 3, padding: '5px 8px', fontSize: 13 }}
+                        value={memberGuestName}
+                        onChange={e => setMemberGuestName(e.target.value)}
+                        placeholder="Player name"
+                        type="text"
+                        autoFocus
+                      />
+                    )}
                     <select
                       style={{ border: '1px solid var(--border-light)', borderRadius: 3, fontSize: 12, padding: '5px' }}
                       value={memberRole}

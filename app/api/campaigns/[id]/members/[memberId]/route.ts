@@ -29,6 +29,26 @@ export async function PATCH(
       data.role = body.role === 'DM' ? 'DM' : 'PLAYER';
     }
 
+    // Link a guest seat to a real user account (DM/admin only)
+    if (body?.email !== undefined && (isAdmin || callerMembership?.role === 'DM')) {
+      const linkEmail = (body.email ?? '').toString().trim().toLowerCase();
+      if (!linkEmail) return NextResponse.json({ error: 'email required for link' }, { status: 400 });
+
+      const targetUser = await prisma.user.findFirst({
+        where: { email: linkEmail, deletedAt: null },
+        select: { id: true },
+      });
+      if (!targetUser) return NextResponse.json({ error: 'user_not_found' }, { status: 404 });
+
+      const alreadyMember = await prisma.campaignMember.findUnique({
+        where: { campaignId_userId: { campaignId: params.id, userId: targetUser.id } },
+      });
+      if (alreadyMember) return NextResponse.json({ error: 'user_already_member' }, { status: 409 });
+
+      data.userId = targetUser.id;
+      data.guestName = null;
+    }
+
     const member = await prisma.campaignMember.update({
       where: { id: params.memberId, campaignId: params.id },
       data,
