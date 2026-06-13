@@ -14,7 +14,9 @@ function buildCampaignSystemPrompt(campaign: {
   notes: string;
   members: Array<{
     role: string;
-    user: { name: string | null; email: string };
+    guestName: string | null;
+    guestCharacterName: string | null;
+    user: { name: string | null; email: string } | null;
     character: {
       name: string;
       level: number;
@@ -26,7 +28,11 @@ function buildCampaignSystemPrompt(campaign: {
   const players = campaign.members.filter(m => m.role === 'PLAYER');
 
   const partyLines = players.map(m => {
-    const playerName = m.user.name ?? m.user.email;
+    const playerName = m.guestName ?? m.user?.name ?? m.user?.email ?? 'Unknown';
+    if (m.guestName) {
+      const charName = m.guestCharacterName ?? 'unknown character';
+      return `  - ${playerName} plays ${charName} (guest — no account yet)`;
+    }
     if (!m.character) return `  - ${playerName} (no character linked)`;
     const classStr = m.character.classes.map(c => `${c.classKey} ${c.level}`).join('/');
     return `  - ${playerName} plays ${m.character.name} (Level ${m.character.level} ${classStr})`;
@@ -38,7 +44,7 @@ function buildCampaignSystemPrompt(campaign: {
 
   return `You are the official chronicler of ${campaign.name}${campaign.description ? ` — ${campaign.description}` : ''}. You write with the voice of a bard who was at the table for every moment — dramatic, colorful, and always ready to call out a heroic deed or a spectacular blunder. Your chronicles are what the players read before next session, so make them worth reading.
 
-DM: ${dm ? (dm.user.name ?? dm.user.email) : 'Unknown'}
+DM: ${dm ? (dm.guestName ?? dm.user?.name ?? dm.user?.email ?? 'Unknown') : 'Unknown'}
 
 The Party:
 ${partyLines.join('\n')}

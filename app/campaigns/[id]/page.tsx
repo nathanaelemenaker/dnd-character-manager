@@ -9,6 +9,7 @@ interface CampaignMember {
   role: 'DM' | 'PLAYER';
   userId: string | null;
   guestName: string | null;
+  guestCharacterName: string | null;
   user: { id: string; name: string | null; email: string; characters: { id: string; name: string }[] } | null;
   character: {
     id: string;
@@ -72,6 +73,8 @@ export default function CampaignDetailPage() {
   const [linkEmail, setLinkEmail] = useState('');
   const [linkingInProgress, setLinkingInProgress] = useState(false);
   const [linkError, setLinkError] = useState('');
+  const [editingCharNameId, setEditingCharNameId] = useState<string | null>(null);
+  const [editingCharNameValue, setEditingCharNameValue] = useState('');
 
   const [myCharacters, setMyCharacters] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedCharId, setSelectedCharId] = useState('');
@@ -187,6 +190,16 @@ export default function CampaignDetailPage() {
     } finally {
       setLinkingInProgress(false);
     }
+  }
+
+  async function handleSaveGuestCharName(memberId: string) {
+    await fetch(`/api/campaigns/${params.id}/members/${memberId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestCharacterName: editingCharNameValue.trim() || null }),
+    });
+    setEditingCharNameId(null);
+    load();
   }
 
   async function handleRemoveMember(memberId: string) {
@@ -446,7 +459,36 @@ export default function CampaignDetailPage() {
                   <div className="panel-body">
                     {isGuest ? (
                       <>
-                        <div className="empty-state" style={{ textAlign: 'left', padding: 0 }}>No account linked</div>
+                        {/* Character name for transcript/AI matching */}
+                        {editingCharNameId === m.id ? (
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                            <input
+                              style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 3, padding: '3px 6px', fontSize: 11 }}
+                              placeholder="Character name"
+                              value={editingCharNameValue}
+                              onChange={e => setEditingCharNameValue(e.target.value)}
+                              autoFocus
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); handleSaveGuestCharName(m.id); }
+                                if (e.key === 'Escape') setEditingCharNameId(null);
+                              }}
+                            />
+                            <button className="ink-btn" style={{ fontSize: 10 }} onClick={() => handleSaveGuestCharName(m.id)}>Save</button>
+                            <button className="ink-btn ghost" style={{ fontSize: 10 }} onClick={() => setEditingCharNameId(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <div
+                            style={{ fontSize: 12, color: m.guestCharacterName ? 'var(--ink)' : 'var(--border)', marginBottom: 4, cursor: canManage ? 'pointer' : 'default' }}
+                            onClick={() => { if (canManage) { setEditingCharNameId(m.id); setEditingCharNameValue(m.guestCharacterName ?? ''); } }}
+                            title={canManage ? 'Click to set character name' : undefined}
+                          >
+                            {m.guestCharacterName
+                              ? <span style={{ fontFamily: 'var(--font-display)' }}>{m.guestCharacterName}</span>
+                              : <span style={{ fontStyle: 'italic' }}>{canManage ? 'Click to set character name' : 'No character set'}</span>
+                            }
+                          </div>
+                        )}
+                        <div className="empty-state" style={{ textAlign: 'left', padding: 0, fontSize: 11 }}>No account linked</div>
                         {canManage && !isLinking && (
                           <button
                             className="ink-btn ghost"
