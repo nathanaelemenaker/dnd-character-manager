@@ -9,6 +9,7 @@ import {
   CombatItemBonuses, parseKeyAbilities,
 } from './ItemAbilities';
 import ClassGuideTab from './ClassGuideTab';
+import FloatingCombatPanel from './FloatingCombatPanel';
 import styles from './sheet.module.css';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -710,6 +711,17 @@ export default function CharacterSheetClient({
           />
         );
       })()}
+
+      <FloatingCombatPanel
+        name={state.name}
+        level={state.level}
+        hp={state.hp}
+        ac={state.ac}
+        speed={state.speed}
+        proficiencyBonus={state.proficiencyBonus}
+        mods={mods}
+        saveMod={saveMod}
+      />
     </div>
   );
 }
