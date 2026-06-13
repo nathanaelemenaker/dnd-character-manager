@@ -2312,6 +2312,7 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
                 // Parse damage from description
                 const dmgMatch = sp.desc?.match(/(\d+d\d+(?:\s*[+\-]\s*\d+)?)\s*(slashing|piercing|bludgeoning|fire|cold|lightning|acid|poison|necrotic|radiant|thunder|psychic|force)/i);
                 const dmgText = dmgMatch ? dmgMatch[0] : null;
+                const slotData = state.spellSlots.find((s: any) => s.level === Number(lv));
 
                 return (
                   <div key={sp.id} style={{ borderBottom: '0.5px solid var(--parchment-dark)' }}>
@@ -2335,6 +2336,40 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
                     </div>
                     {isExpanded && (
                       <div style={{ margin: '0 0 8px 16px', padding: '8px 10px', background: 'var(--parchment-dark)', borderRadius: 4, border: '1px solid var(--border-light)' }}>
+                        {/* Spell slot use row */}
+                        {Number(lv) > 0 && slotData && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border-light)' }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); if (slotData.used < slotData.max) toggleSlot(Number(lv), slotData.used); }}
+                              disabled={slotData.used >= slotData.max}
+                              style={{
+                                padding: '3px 10px',
+                                fontSize: 11,
+                                fontFamily: 'var(--font-display)',
+                                background: slotData.used < slotData.max ? 'var(--gold)' : 'var(--parchment)',
+                                color: slotData.used < slotData.max ? 'var(--ink)' : 'var(--border)',
+                                border: '1px solid var(--gold)',
+                                borderRadius: 3,
+                                cursor: slotData.used < slotData.max ? 'pointer' : 'not-allowed',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Cast
+                            </button>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              {Array.from({ length: slotData.max }).map((_, i) => (
+                                <div
+                                  key={i}
+                                  className={`slot-pip ${i < slotData.used ? 'used' : ''}`}
+                                  onClick={(e) => { e.stopPropagation(); toggleSlot(Number(lv), i); }}
+                                />
+                              ))}
+                            </div>
+                            <span style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>
+                              {slotData.max - slotData.used} / {slotData.max} slots
+                            </span>
+                          </div>
+                        )}
                         {/* Combat quick-reference row */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
                           {sp.castingTime && <div><div className="dp-label">Cast Time</div><div style={{ fontSize: 12, fontWeight: 600 }}>{sp.castingTime}</div></div>}
