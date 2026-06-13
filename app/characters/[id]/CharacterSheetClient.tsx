@@ -103,6 +103,12 @@ const SKILL_ABILITIES: Record<string, AbilityKey> = {
   'Sleight of Hand':'DEX','Stealth':'DEX','Survival':'WIS',
 };
 
+const CLASS_SPELL_ABILITY: Record<string, AbilityKey> = {
+  wizard: 'INT', artificer: 'INT',
+  cleric: 'WIS', druid: 'WIS', ranger: 'WIS',
+  bard: 'CHA', sorcerer: 'CHA', warlock: 'CHA', paladin: 'CHA',
+};
+
 function buildInitialState(
   c: CharacterProp,
   abilities: Record<AbilityKey, number>,
@@ -282,6 +288,23 @@ export default function CharacterSheetClient({
   function saveMod(ab: AbilityKey) { return mods[ab] + (state.saves[ab] ? state.proficiencyBonus : 0); }
   const totalWeight = useMemo(() => state.inventory.reduce((s, i) => s + (i.itemDef.weight ?? 0) * i.quantity, 0), [state.inventory]);
   const hpPct = clamp(Math.round((state.hp.current / state.hp.max) * 100), 0, 100);
+
+  const spellcasting = useMemo(() => {
+    const casters = state.classes
+      .filter(c => CLASS_SPELL_ABILITY[c.name.toLowerCase()])
+      .sort((a, b) => b.level - a.level);
+    if (!casters.length) return null;
+    const abilityKey = CLASS_SPELL_ABILITY[casters[0].name.toLowerCase()];
+    const baseMod = mods[abilityKey];
+    const itemBonuses = computeStatBonuses(state.inventory, state.classes, mods, state.ac);
+    const atkItemBonus = sumNumericBonuses(itemBonuses, 'Spell Attack Rolls');
+    const dcItemBonus  = sumNumericBonuses(itemBonuses, 'Spell Save DC');
+    return {
+      abilityKey,
+      saveDC: 8 + state.proficiencyBonus + baseMod + dcItemBonus,
+      attackBonus: state.proficiencyBonus + baseMod + atkItemBonus,
+    };
+  }, [state.classes, state.abilities, state.proficiencyBonus, state.inventory, mods, state.ac]);
   const abs: AbilityKey[] = ['STR','DEX','CON','INT','WIS','CHA'];
 
   // ── API helpers ───────────────────────────────────────────────────────────
@@ -678,7 +701,7 @@ export default function CharacterSheetClient({
         {tab === 'abilities'   && <AbilitiesTab  {...tabProps} setAbility={setAbility} />}
         {tab === 'combat'      && <CombatTab     {...tabProps} saveMod={saveMod} toggleSave={toggleSave} />}
         {tab === 'skills'      && <SkillsTab     {...tabProps} />}
-        {tab === 'spells'      && <SpellsTab     {...tabProps} />}
+        {tab === 'spells'      && <SpellsTab     {...tabProps} spellcasting={spellcasting} />}
         {tab === 'inventory'   && <InventoryTab  {...tabProps} />}
         {tab === 'features'    && <FeaturesTab   {...tabProps} />}
         {tab === 'notes'       && <NotesTab characterId={cid} />}
@@ -721,6 +744,7 @@ export default function CharacterSheetClient({
         proficiencyBonus={state.proficiencyBonus}
         mods={mods}
         saveMod={saveMod}
+        spellcasting={spellcasting}
       />
     </div>
   );
@@ -1138,6 +1162,12 @@ interface StatBonus {
   isFormula?: boolean; // true for AC (shows full formula not just bonus)
 }
 
+function sumNumericBonuses(bonuses: StatBonus[], stat: string): number {
+  return bonuses
+    .filter(b => b.stat === stat)
+    .reduce((sum, b) => { const m = b.bonus.match(/\+?(\d+)/); return sum + (m ? parseInt(m[1]) : 0); }, 0);
+}
+
 function computeStatBonuses(
   inventory: InventoryItem[],
   classes: CharClass[],
@@ -1217,10 +1247,22 @@ function computeStatBonuses(
     }
 
     // ── Parse keyAbilities / text for bonus patterns ──
-    // +X to spell attack
+    // +X to spell attack rolls
     const spellAtkMatch = text.match(/\+(\d+).*?spell attack/i);
     if (spellAtkMatch) {
       bonuses.push({ stat: 'Spell Attack Rolls', bonus: `+${spellAtkMatch[1]}`, source: name });
+    }
+    // +X to spell save DC
+    const spellDCMatch = text.match(/\+(\d+).*?spell save dc/i);
+    if (spellDCMatch) {
+      bonuses.push({ stat: 'Spell Save DC', bonus: `+${spellDCMatch[1]}`, source: name });
+    }
+    // +X to spell attack rolls and spell save DC (e.g. Bloodwell Vial)
+    const spellBothMatch = text.match(/\+(\d+).*?spell attack.*?spell save dc/i) ??
+                           text.match(/\+(\d+).*?spell save dc.*?spell attack/i);
+    if (spellBothMatch && !spellAtkMatch && !spellDCMatch) {
+      bonuses.push({ stat: 'Spell Attack Rolls', bonus: `+${spellBothMatch[1]}`, source: name });
+      bonuses.push({ stat: 'Spell Save DC', bonus: `+${spellBothMatch[1]}`, source: name });
     }
     // +X to attack and damage
     const atkDmgMatch = text.match(/\+(\d+).*?(?:attack and damage|attack & damage)/i);
@@ -2004,7 +2046,7 @@ function SpellSlotValidator({ classes, spellSlots, addSlots, dismissedKeys, onDi
   );
 }
 
-function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest }: any) {
+function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, spellcasting }: any) {
   const [searchQ, setSearchQ] = useState('');
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -2093,6 +2135,20 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
 
   return (
     <>
+      {spellcasting && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 10 }}>
+          {[
+            { label: 'Casting Ability', value: spellcasting.abilityKey },
+            { label: 'Spell Save DC',   value: String(spellcasting.saveDC) },
+            { label: 'Spell Attack',    value: (spellcasting.attackBonus >= 0 ? '+' : '') + spellcasting.attackBonus },
+          ].map(({ label, value }) => (
+            <div key={label} className="panel" style={{ textAlign: 'center', padding: '8px 4px' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--border)', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      )}
       <SpellSlotValidator
         classes={state.classes}
         spellSlots={state.spellSlots}
