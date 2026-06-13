@@ -305,6 +305,18 @@ export default function CharacterSheetClient({
       attackBonus: state.proficiencyBonus + baseMod + atkItemBonus,
     };
   }, [state.classes, state.abilities, state.proficiencyBonus, state.inventory, mods, state.ac]);
+
+  const proficientSkills = useMemo(() =>
+    Object.entries(state.skills)
+      .filter(([, sk]) => (sk as any).prof > 0)
+      .map(([skillName, sk]: [string, any]) => ({
+        name: skillName,
+        mod: mods[sk.ability as AbilityKey] + (sk.prof === 2 ? state.proficiencyBonus * 2 : state.proficiencyBonus),
+        expert: sk.prof === 2,
+      }))
+      .sort((a, b) => b.mod - a.mod),
+  [state.skills, state.abilities, state.proficiencyBonus, mods]);
+
   const abs: AbilityKey[] = ['STR','DEX','CON','INT','WIS','CHA'];
 
   // ── API helpers ───────────────────────────────────────────────────────────
@@ -745,6 +757,7 @@ export default function CharacterSheetClient({
         mods={mods}
         saveMod={saveMod}
         spellcasting={spellcasting}
+        proficientSkills={proficientSkills}
       />
     </div>
   );
@@ -1246,18 +1259,32 @@ function computeStatBonuses(
       // Don't continue — fall through to text parsing for additional bonuses (e.g. ignore half cover)
     }
 
-    // ── Parse keyAbilities / text for bonus patterns ──
+    // ── Rarity-determined bonuses (e.g. Moon Sickle: "bonus determined by weapon's rarity") ──
+    const RARITY_BONUS: Record<string, number> = { common: 0, uncommon: 1, rare: 2, 'very rare': 3, legendary: 3 };
+    const rarityVal = RARITY_BONUS[(it.itemDef.rarity ?? '').toLowerCase()] ?? 0;
+    if (/bonus is determined by.*?rarity|determined by.*?(?:weapon.*?)?rarity/i.test(text) && rarityVal > 0) {
+      if (/spell attack/i.test(text))
+        bonuses.push({ stat: 'Spell Attack Rolls', bonus: `+${rarityVal}`, source: name });
+      if (/saving throw dc/i.test(text) || /spell save dc/i.test(text))
+        bonuses.push({ stat: 'Spell Save DC', bonus: `+${rarityVal}`, source: name });
+      if (/attack and damage|attack & damage/i.test(text)) {
+        bonuses.push({ stat: 'Attack Rolls',  bonus: `+${rarityVal}`, source: name });
+        bonuses.push({ stat: 'Damage Rolls',  bonus: `+${rarityVal}`, source: name });
+      }
+    }
+
+    // ── Parse keyAbilities / text for explicit +X bonus patterns ──
     // +X to spell attack rolls
     const spellAtkMatch = text.match(/\+(\d+).*?spell attack/i);
     if (spellAtkMatch) {
       bonuses.push({ stat: 'Spell Attack Rolls', bonus: `+${spellAtkMatch[1]}`, source: name });
     }
-    // +X to spell save DC
-    const spellDCMatch = text.match(/\+(\d+).*?spell save dc/i);
+    // +X to spell save DC / saving throw DCs
+    const spellDCMatch = text.match(/\+(\d+).*?(?:spell save dc|saving throw dc)/i);
     if (spellDCMatch) {
       bonuses.push({ stat: 'Spell Save DC', bonus: `+${spellDCMatch[1]}`, source: name });
     }
-    // +X to spell attack rolls and spell save DC (e.g. Bloodwell Vial)
+    // +X to both spell attack and save DC (e.g. Bloodwell Vial)
     const spellBothMatch = text.match(/\+(\d+).*?spell attack.*?spell save dc/i) ??
                            text.match(/\+(\d+).*?spell save dc.*?spell attack/i);
     if (spellBothMatch && !spellAtkMatch && !spellDCMatch) {

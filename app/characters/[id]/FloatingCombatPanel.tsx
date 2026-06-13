@@ -10,6 +10,12 @@ interface SpellcastingInfo {
   attackBonus: number;
 }
 
+interface ProficientSkill {
+  name: string;
+  mod: number;
+  expert: boolean;
+}
+
 interface Props {
   name: string;
   level: number;
@@ -20,6 +26,7 @@ interface Props {
   mods: Record<AbilityKey, number>;
   saveMod: (ab: AbilityKey) => number;
   spellcasting?: SpellcastingInfo | null;
+  proficientSkills?: ProficientSkill[];
 }
 
 const ABS: AbilityKey[] = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
@@ -44,7 +51,7 @@ function StatBox({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function FloatingCombatPanel({ name, level, hp, ac, speed, proficiencyBonus, mods, saveMod, spellcasting }: Props) {
+export default function FloatingCombatPanel({ name, level, hp, ac, speed, proficiencyBonus, mods, saveMod, spellcasting, proficientSkills = [] }: Props) {
   const [visible, setVisible] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -225,6 +232,24 @@ export default function FloatingCombatPanel({ name, level, hp, ac, speed, profic
               ))}
             </div>
           </div>
+
+          {/* Proficient skills */}
+          {proficientSkills.length > 0 && (
+            <div>
+              {sectionLabel('Skills')}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {proficientSkills.map(sk => (
+                  <div key={sk.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: 'var(--border)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      {sk.name}
+                      {sk.expert && <span style={{ fontSize: 7, color: 'var(--gold)', fontWeight: 900 }}>★</span>}
+                    </span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{fmt(sk.mod)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
