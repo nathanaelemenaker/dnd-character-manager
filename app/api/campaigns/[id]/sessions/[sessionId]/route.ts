@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getSession, hasRole } from '@/lib/auth';
+import { renderLabeledTranscript, type DiarizedSegment } from '@/lib/transcript';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,19 @@ export async function PATCH(
     if (typeof body.rawTranscript === 'string') data.rawTranscript = body.rawTranscript;
     if (typeof body.title === 'string') data.title = body.title || null;
     if (typeof body.corrections === 'string') data.corrections = body.corrections || null;
+
+    // When speakerMap is updated, re-render rawTranscript from stored segments
+    if (body.speakerMap !== undefined && typeof body.speakerMap === 'object') {
+      const existing = await prisma.sessionLog.findUnique({
+        where: { id: params.sessionId, campaignId: params.id },
+        select: { diarizedSegments: true },
+      });
+      const segments = (existing?.diarizedSegments ?? []) as DiarizedSegment[];
+      data.speakerMap = body.speakerMap;
+      if (segments.length) {
+        data.rawTranscript = renderLabeledTranscript(segments, body.speakerMap as Record<string, string>);
+      }
+    }
 
     const log = await prisma.sessionLog.update({
       where: { id: params.sessionId, campaignId: params.id },

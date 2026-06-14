@@ -330,6 +330,8 @@ model SessionLog {
   sessionNumber    Int
   title            String?
   rawTranscript    String    @default("")
+  diarizedSegments Json?
+  speakerMap       Json?
   corrections      String?
   generatedOutput  Json?
   transcriptStatus String?

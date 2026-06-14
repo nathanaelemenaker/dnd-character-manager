@@ -1,56 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, readdir, unlink, rm } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/prisma';
 import { getSession, hasRole } from '@/lib/auth';
+import { renderLabeledTranscript, type DiarizedSegment } from '@/lib/transcript';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 const AUDIO_DIR = '/opt/dnd-sheet/audio';
-const CHUNK_SECONDS = 600; // split files longer than 10 minutes
 
-// Browser-recorded webm files often have no duration metadata, so we always
-// chunk rather than checking duration first.
-async function splitIntoChunks(filePath: string, chunkDir: string): Promise<string[]> {
+// Transcode to 16 kHz mono WAV — fixes browser webm missing-duration metadata
+// and produces a file the WhisperX aligner handles reliably.
+async function transcodeToWav(inputPath: string, outputPath: string): Promise<void> {
   const { execFile } = await import('child_process');
   const { promisify } = await import('util');
-  await mkdir(chunkDir, { recursive: true });
   await promisify(execFile)('ffmpeg', [
-    '-i', filePath,
-    '-f', 'segment', '-segment_time', String(CHUNK_SECONDS),
-    '-reset_timestamps', '1', '-c', 'copy',
-    path.join(chunkDir, 'chunk_%03d.webm'), '-y',
+    '-i', inputPath,
+    '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le',
+    outputPath, '-y',
   ]);
-  const files = await readdir(chunkDir);
-  return files
-    .filter(f => f.startsWith('chunk_') && f.endsWith('.webm'))
-    .sort()
-    .map(f => path.join(chunkDir, f));
 }
 
-async function transcribeChunk(filePath: string, whisperUrl: string, model: string): Promise<string> {
-  const { readFile } = await import('fs/promises');
+async function callDiarize(
+  wavPath: string,
+  whisperUrl: string,
+  maxSpeakers?: number,
+): Promise<DiarizedSegment[]> {
   const http = await import('node:http');
-
-  const audioBuffer = await readFile(filePath);
-  const boundary = `----WhisperBoundary${Date.now()}`;
-
-  // Build multipart/form-data body manually — avoids fetch/undici timeout issues
-  const CRLF = '\r\n';
-  const preamble = Buffer.from(
-    `--${boundary}${CRLF}Content-Disposition: form-data; name="file"; filename="${path.basename(filePath)}"${CRLF}Content-Type: audio/webm${CRLF}${CRLF}`
-  );
-  const middle = Buffer.from(
-    `${CRLF}--${boundary}${CRLF}Content-Disposition: form-data; name="model"${CRLF}${CRLF}${model}` +
-    `${CRLF}--${boundary}${CRLF}Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}json` +
-    `${CRLF}--${boundary}${CRLF}Content-Disposition: form-data; name="language"${CRLF}${CRLF}en` +
-    `${CRLF}--${boundary}--${CRLF}`
-  );
-  const body = Buffer.concat([preamble, audioBuffer, middle]);
-
-  const url = new URL(`${whisperUrl}/v1/audio/transcriptions`);
+  const url = new URL(`${whisperUrl}/diarize`);
+  const body = Buffer.from(JSON.stringify({
+    path: wavPath,
+    language: 'en',
+    ...(maxSpeakers ? { max_speakers: maxSpeakers } : {}),
+  }));
 
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -59,22 +43,24 @@ async function transcribeChunk(filePath: string, whisperUrl: string, model: stri
       path: url.pathname,
       method: 'POST',
       headers: {
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Type': 'application/json',
         'Content-Length': body.length,
       },
+      // No timeout — diarizing a long session can take hours on CPU
     }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
         if (res.statusCode !== 200) {
-          reject(new Error(`Whisper returned ${res.statusCode}: ${text.slice(0, 200)}`));
+          reject(new Error(`WhisperX returned ${res.statusCode}: ${text.slice(0, 300)}`));
           return;
         }
         try {
-          resolve((JSON.parse(text).text ?? '').trim());
+          const data = JSON.parse(text);
+          resolve(data.segments ?? []);
         } catch {
-          reject(new Error(`Invalid JSON from Whisper: ${text.slice(0, 200)}`));
+          reject(new Error(`Invalid JSON from WhisperX: ${text.slice(0, 200)}`));
         }
       });
     });
@@ -84,9 +70,8 @@ async function transcribeChunk(filePath: string, whisperUrl: string, model: stri
   });
 }
 
-async function runTranscription(sessionId: string, filePath: string) {
-  const chunkDir = path.join(AUDIO_DIR, `chunks_${sessionId}`);
-  let chunkFiles: string[] = [];
+async function runTranscription(sessionId: string, campaignId: string, webmPath: string) {
+  const wavPath = webmPath.replace(/\.webm$/, '.wav');
 
   try {
     await prisma.sessionLog.update({
@@ -94,39 +79,40 @@ async function runTranscription(sessionId: string, filePath: string) {
       data: { transcriptStatus: 'processing' },
     });
 
-    const whisperUrl = process.env.WHISPER_API_URL ?? 'http://whisper:8000';
-    const model = process.env.WHISPER_MODEL ?? 'medium';
+    // Count campaign members to hint pyannote's speaker count
+    const memberCount = await prisma.campaignMember.count({ where: { campaignId } });
 
-    // Always chunk — browser webm files often have no duration metadata so
-    // we can't reliably check length upfront. Short files produce 1 chunk.
-    chunkFiles = await splitIntoChunks(filePath, chunkDir);
-    const parts: string[] = [];
-    for (const chunk of chunkFiles) {
-      parts.push(await transcribeChunk(chunk, whisperUrl, model));
-    }
+    const whisperUrl = process.env.WHISPER_API_URL ?? 'http://whisper:8000';
+
+    await transcodeToWav(webmPath, wavPath);
+
+    // The WhisperX container shares the /audio NAS mount; pass it the internal path
+    const containerWavPath = '/audio/' + path.basename(wavPath);
+    const segments = await callDiarize(containerWavPath, whisperUrl, memberCount || undefined);
+
+    const rawTranscript = renderLabeledTranscript(segments, {});
 
     await prisma.sessionLog.update({
       where: { id: sessionId },
       data: {
         transcriptStatus: 'done',
-        rawTranscript: parts.join(' ').trim(),
+        rawTranscript,
+        diarizedSegments: segments as any,
+        speakerMap: {},
         transcriptError: null,
         audioPath: null,
       },
     });
 
-    await unlink(filePath).catch(() => {});
+    await unlink(webmPath).catch(() => {});
+    await unlink(wavPath).catch(() => {});
   } catch (err: any) {
     console.error(`Transcription failed for session ${sessionId}:`, err);
     await prisma.sessionLog.update({
       where: { id: sessionId },
       data: { transcriptStatus: 'error', transcriptError: err?.message ?? 'Unknown error' },
     }).catch(console.error);
-  } finally {
-    if (chunkFiles.length > 0) {
-      await Promise.all(chunkFiles.map(f => unlink(f).catch(() => {})));
-      await rm(chunkDir, { recursive: true, force: true }).catch(() => {});
-    }
+    await unlink(wavPath).catch(() => {});
   }
 }
 
@@ -149,7 +135,6 @@ export async function POST(
     });
     if (!sessionLog) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-    // Reject if already processing
     if (sessionLog.transcriptStatus === 'pending' || sessionLog.transcriptStatus === 'processing') {
       return NextResponse.json({ error: 'already_in_progress', status: sessionLog.transcriptStatus }, { status: 409 });
     }
@@ -158,24 +143,20 @@ export async function POST(
     const audioFile = formData.get('audio') as File | null;
     if (!audioFile) return NextResponse.json({ error: 'audio file required' }, { status: 400 });
 
-    // Save audio to disk
     if (!existsSync(AUDIO_DIR)) {
       await mkdir(AUDIO_DIR, { recursive: true });
     }
 
-    const filePath = path.join(AUDIO_DIR, `${params.sessionId}.webm`);
+    const webmPath = path.join(AUDIO_DIR, `${params.sessionId}.webm`);
     const audioBuffer = Buffer.from(await audioFile.arrayBuffer());
-    await writeFile(filePath, audioBuffer);
+    await writeFile(webmPath, audioBuffer);
 
-    // Mark as pending immediately
     await prisma.sessionLog.update({
       where: { id: params.sessionId },
-      data: { transcriptStatus: 'pending', audioPath: filePath, transcriptError: null },
+      data: { transcriptStatus: 'pending', audioPath: webmPath, transcriptError: null },
     });
 
-    // Fire and forget — runs in background while response is returned
-    // Safe in a persistent Docker container (not serverless)
-    runTranscription(params.sessionId, filePath);
+    runTranscription(params.sessionId, params.id, webmPath);
 
     return NextResponse.json({ status: 'pending' });
   } catch (e) {
@@ -215,7 +196,7 @@ export async function PUT(
       data: { transcriptStatus: 'pending', transcriptError: null },
     });
 
-    runTranscription(params.sessionId, sessionLog.audioPath);
+    runTranscription(params.sessionId, params.id, sessionLog.audioPath);
 
     return NextResponse.json({ status: 'pending' });
   } catch (e) {
@@ -224,7 +205,6 @@ export async function PUT(
   }
 }
 
-// Allow re-triggering a failed transcription
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string; sessionId: string } }
@@ -240,6 +220,7 @@ export async function DELETE(
 
     if (sessionLog.audioPath) {
       await unlink(sessionLog.audioPath).catch(() => {});
+      await unlink(sessionLog.audioPath.replace(/\.webm$/, '.wav')).catch(() => {});
     }
 
     await prisma.sessionLog.update({

@@ -41,6 +41,8 @@ interface SessionLog {
   sessionNumber: number;
   title: string | null;
   rawTranscript: string;
+  diarizedSegments: Array<{ start: number; end: number; speaker: string; text: string }> | null;
+  speakerMap: Record<string, string> | null;
   corrections: string | null;
   generatedOutput: GeneratedOutput | null;
   transcriptStatus: string | null;
@@ -48,6 +50,14 @@ interface SessionLog {
   audioPath: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface CampaignMember {
+  id: string;
+  role: string;
+  guestName: string | null;
+  guestCharacterName: string | null;
+  user: { name: string | null; email: string } | null;
 }
 
 const OUTCOME_STYLES: Record<string, { bg: string; color: string; label: string }> = {
@@ -65,6 +75,9 @@ export default function SessionLogPage() {
   const [log, setLog] = useState<SessionLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [campaignMembers, setCampaignMembers] = useState<CampaignMember[]>([]);
+  const [speakerMapDraft, setSpeakerMapDraft] = useState<Record<string, string>>({});
+  const [savingSpeakerMap, setSavingSpeakerMap] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'combat' | 'party'>('summary');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
@@ -83,12 +96,20 @@ export default function SessionLogPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`);
-      if (res.status === 404) { router.replace(`/campaigns/${params.id}`); return; }
-      if (!res.ok) throw new Error('Failed to load session');
-      const data = await res.json();
-      setLog(data.session);
-      setDraftCorrections(data.session.corrections ?? '');
+      const [sessionRes, campaignRes] = await Promise.all([
+        fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`),
+        fetch(`/api/campaigns/${params.id}`),
+      ]);
+      if (sessionRes.status === 404) { router.replace(`/campaigns/${params.id}`); return; }
+      if (!sessionRes.ok) throw new Error('Failed to load session');
+      const sessionData = await sessionRes.json();
+      setLog(sessionData.session);
+      setDraftCorrections(sessionData.session.corrections ?? '');
+      setSpeakerMapDraft(sessionData.session.speakerMap ?? {});
+      if (campaignRes.ok) {
+        const campaignData = await campaignRes.json();
+        setCampaignMembers(campaignData.campaign?.members ?? []);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -162,6 +183,22 @@ export default function SessionLogPage() {
       // keep editing open
     } finally {
       setSavingCorrections(false);
+    }
+  }
+
+  async function handleSaveSpeakerMap() {
+    setSavingSpeakerMap(true);
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speakerMap: speakerMapDraft }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      const data = await res.json();
+      setLog(prev => prev ? { ...prev, speakerMap: speakerMapDraft, rawTranscript: data.session?.rawTranscript ?? prev.rawTranscript } : prev);
+    } finally {
+      setSavingSpeakerMap(false);
     }
   }
 
@@ -762,6 +799,51 @@ export default function SessionLogPage() {
           )}
         </div>
       )}
+
+      {/* Speaker mapping panel — shown when diarization has run */}
+      {log.diarizedSegments && log.diarizedSegments.length > 0 && (() => {
+        const distinctSpeakers = [...new Set(log.diarizedSegments!.map(s => s.speaker))].sort();
+        const memberLabels = campaignMembers
+          .filter(m => m.role === 'PLAYER')
+          .map(m => {
+            const playerName = m.guestName ?? m.user?.name ?? m.user?.email ?? 'Unknown';
+            const charName = m.guestCharacterName ?? (m as any).character?.name ?? null;
+            return charName ? `${playerName} / ${charName}` : playerName;
+          });
+        return (
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, marginBottom: 10 }}>Speakers</div>
+            <div style={{ fontSize: 12, color: 'var(--border)', marginBottom: 10 }}>
+              Map each detected speaker to a player. Saving re-renders the transcript with names.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 420 }}>
+              {distinctSpeakers.map(spk => (
+                <div key={spk} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--border)', minWidth: 100 }}>{spk}</span>
+                  <input
+                    list={`members-${spk}`}
+                    style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 3, padding: '4px 7px', fontSize: 12 }}
+                    placeholder="Type or select a name…"
+                    value={speakerMapDraft[spk] ?? ''}
+                    onChange={e => setSpeakerMapDraft(prev => ({ ...prev, [spk]: e.target.value }))}
+                  />
+                  <datalist id={`members-${spk}`}>
+                    {memberLabels.map(label => <option key={label} value={label} />)}
+                  </datalist>
+                </div>
+              ))}
+            </div>
+            <button
+              className="ink-btn"
+              style={{ marginTop: 12, fontSize: 11 }}
+              onClick={handleSaveSpeakerMap}
+              disabled={savingSpeakerMap}
+            >
+              {savingSpeakerMap ? 'Saving…' : 'Save Speaker Labels'}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Raw Transcript toggle */}
       <div style={{ marginTop: 16, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>

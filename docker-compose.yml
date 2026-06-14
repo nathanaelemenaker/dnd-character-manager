@@ -15,12 +15,15 @@ services:
       retries: 10
 
   whisper:
-    image: fedirz/faster-whisper-server:latest-cpu
+    build: ./whisperx
     restart: unless-stopped
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - WHISPERX_MODEL=small
+      - WHISPERX_COMPUTE_TYPE=int8
     volumes:
       - /mnt/nas-docker/dnd-sheet/whisper-cache:/root/.cache/huggingface
-    environment:
-      - WHISPER__MODEL=medium
+      - /mnt/nas-docker/dnd-sheet/audio:/audio
 
   web:
     image: node:20-slim
