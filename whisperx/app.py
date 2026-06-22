@@ -4,6 +4,12 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+# pyannote.audio 3.1.x calls torchaudio.set_audio_backend() which was removed
+# in torchaudio 2.1+. Shim it so the import doesn't crash.
+import torchaudio
+if not hasattr(torchaudio, 'set_audio_backend'):
+    torchaudio.set_audio_backend = lambda *args, **kwargs: None
+
 app = FastAPI()
 
 _asr_model = None
