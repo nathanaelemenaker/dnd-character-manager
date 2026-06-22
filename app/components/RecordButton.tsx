@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRecording } from '@/context/RecordingContext';
 import { loadRecording, deleteRecording, type SavedRecording } from '@/lib/recordingStore';
 
@@ -252,18 +252,61 @@ export default function RecordButton({
       )}
 
       <div>
-        <button
-          className="ink-btn"
-          style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}
-          onClick={() => startRecording(campaignId, sessionId)}
-        >
-          <span style={{ fontSize: 16 }}>🎙</span>
-          Record Audio
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className="ink-btn"
+            style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}
+            onClick={() => startRecording(campaignId, sessionId)}
+          >
+            <span style={{ fontSize: 16 }}>🎙</span>
+            Record Audio
+          </button>
+          <AudioFileUpload campaignId={campaignId} sessionId={sessionId} onUpload={recoverRecording} />
+        </div>
         <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
           Records in your browser — navigate freely while recording. Upload when you're done.
         </div>
       </div>
     </div>
+  );
+}
+
+function AudioFileUpload({
+  campaignId,
+  sessionId,
+  onUpload,
+}: {
+  campaignId: string;
+  sessionId: string;
+  onUpload: (campaignId: string, sessionId: string, blob: Blob, elapsed: number) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    onUpload(campaignId, sessionId, file, 0);
+    // Reset so the same file can be re-selected if needed
+    e.target.value = '';
+  }
+
+  return (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+      <button
+        className="ink-btn ghost"
+        style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <span style={{ fontSize: 14 }}>📂</span>
+        Upload File
+      </button>
+    </>
   );
 }
