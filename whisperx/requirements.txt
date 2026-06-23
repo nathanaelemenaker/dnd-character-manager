@@ -2,3 +2,5 @@
 whisperx==3.1.5
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+# pyannote.audio 3.1.x uses np.NaN which was removed in NumPy 2.0
+numpy<2.0
