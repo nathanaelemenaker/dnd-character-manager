@@ -1,5 +1,6 @@
 import os
 import gc
+import traceback
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -93,4 +94,5 @@ def diarize(req: DiarizeRequest):
         return {"segments": segments, "language": result.get("language", req.language)}
 
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
