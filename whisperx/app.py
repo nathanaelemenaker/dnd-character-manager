@@ -16,10 +16,30 @@ COMPUTE_TYPE = os.environ.get("WHISPERX_COMPUTE_TYPE", "int8")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 
+def _ensure_vad_model():
+    """Pre-download the VAD segmentation model using requests, which handles
+    S3 cross-region 301 redirects that Python's urllib silently fails on."""
+    import torch
+    import requests
+    from whisperx.vad import VAD_SEGMENTATION_URL
+    model_dir = torch.hub.get_dir()
+    os.makedirs(model_dir, exist_ok=True)
+    model_fp = os.path.join(model_dir, "whisperx-vad-segmentation.bin")
+    if not os.path.isfile(model_fp):
+        print(f"Downloading VAD model from {VAD_SEGMENTATION_URL} ...", flush=True)
+        r = requests.get(VAD_SEGMENTATION_URL, allow_redirects=True, stream=True, timeout=300)
+        r.raise_for_status()
+        with open(model_fp, "wb") as f:
+            for chunk in r.iter_content(chunk_size=65536):
+                f.write(chunk)
+        print("VAD model downloaded.", flush=True)
+
+
 def get_asr_model():
     global _asr_model
     if _asr_model is None:
         import whisperx
+        _ensure_vad_model()
         _asr_model = whisperx.load_model(MODEL_NAME, device="cpu", compute_type=COMPUTE_TYPE)
     return _asr_model
 
