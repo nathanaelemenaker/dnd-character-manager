@@ -4,11 +4,15 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# pyannote.audio 3.1.x calls torchaudio.set_audio_backend() which was removed
-# in torchaudio 2.1+. Shim it so the import doesn't crash.
+# pyannote.audio 3.1.x calls several torchaudio backend functions that were
+# removed in torchaudio 2.1+. Shim them all before whisperx is imported.
 import torchaudio
 if not hasattr(torchaudio, 'set_audio_backend'):
     torchaudio.set_audio_backend = lambda *args, **kwargs: None
+if not hasattr(torchaudio, 'get_audio_backend'):
+    torchaudio.get_audio_backend = lambda: 'soundfile'
+if not hasattr(torchaudio, 'list_audio_backends'):
+    torchaudio.list_audio_backends = lambda: ['soundfile']
 
 app = FastAPI()
 
