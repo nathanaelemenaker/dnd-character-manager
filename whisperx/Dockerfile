@@ -22,8 +22,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 
-# torch CPU wheel is large — install separately so layer is cached
-RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Pin to torch 2.0.x — pyannote.audio 3.1.x uses torchaudio APIs
+# (set_audio_backend, get_audio_backend, torchaudio.backend.common)
+# that were all removed in torchaudio 2.1.0.
+RUN pip install --no-cache-dir \
+    "torch==2.0.1+cpu" \
+    "torchaudio==2.0.2+cpu" \
+    --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
