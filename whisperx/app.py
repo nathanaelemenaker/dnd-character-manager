@@ -18,15 +18,19 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 def _ensure_vad_model():
     """Pre-download the VAD segmentation model using requests, which handles
-    S3 cross-region 301 redirects that Python's urllib silently fails on."""
+    S3 cross-region 301 redirects that Python's urllib silently fails on.
+
+    whisperx uses torch.hub._get_torch_home() (→ ~/.cache/torch), NOT
+    torch.hub.get_dir() (→ ~/.cache/torch/hub) — must match exactly.
+    """
     import torch
     import requests
     from whisperx.vad import VAD_SEGMENTATION_URL
-    model_dir = torch.hub.get_dir()
+    model_dir = torch.hub._get_torch_home()
     os.makedirs(model_dir, exist_ok=True)
     model_fp = os.path.join(model_dir, "whisperx-vad-segmentation.bin")
     if not os.path.isfile(model_fp):
-        print(f"Downloading VAD model from {VAD_SEGMENTATION_URL} ...", flush=True)
+        print(f"Downloading VAD model to {model_fp} ...", flush=True)
         r = requests.get(VAD_SEGMENTATION_URL, allow_redirects=True, stream=True, timeout=300)
         r.raise_for_status()
         with open(model_fp, "wb") as f:
