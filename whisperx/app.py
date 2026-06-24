@@ -17,26 +17,39 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 
 def _ensure_vad_model():
-    """Pre-download the VAD segmentation model using requests, which handles
-    S3 cross-region 301 redirects that Python's urllib silently fails on.
+    """Download the VAD segmentation model from HuggingFace.
+
+    The whisperx S3 bucket (eu-west-2) is inaccessible — it returns a
+    PermanentRedirect XML with no Location header, so urllib and requests
+    both fail. The same model file lives on HuggingFace at
+    pyannote/segmentation at the revision whose SHA256 matches the hash
+    embedded in the S3 URL path.
 
     whisperx uses torch.hub._get_torch_home() (→ ~/.cache/torch), NOT
     torch.hub.get_dir() (→ ~/.cache/torch/hub) — must match exactly.
     """
+    import shutil
     import torch
-    import requests
+    from huggingface_hub import hf_hub_download
     from whisperx.vad import VAD_SEGMENTATION_URL
+
     model_dir = torch.hub._get_torch_home()
     os.makedirs(model_dir, exist_ok=True)
     model_fp = os.path.join(model_dir, "whisperx-vad-segmentation.bin")
+
     if not os.path.isfile(model_fp):
-        print(f"Downloading VAD model to {model_fp} ...", flush=True)
-        r = requests.get(VAD_SEGMENTATION_URL, allow_redirects=True, stream=True, timeout=300)
-        r.raise_for_status()
-        with open(model_fp, "wb") as f:
-            for chunk in r.iter_content(chunk_size=65536):
-                f.write(chunk)
-        print("VAD model downloaded.", flush=True)
+        # The directory segment in the S3 URL is the git revision of the
+        # pyannote/segmentation model on HuggingFace.
+        revision = VAD_SEGMENTATION_URL.split('/')[-2]
+        print(f"Downloading VAD model from HuggingFace (rev {revision[:8]}...) ...", flush=True)
+        hf_path = hf_hub_download(
+            repo_id="pyannote/segmentation",
+            filename="pytorch_model.bin",
+            revision=revision,
+            token=HF_TOKEN or None,
+        )
+        shutil.copy2(hf_path, model_fp)
+        print(f"VAD model ready at {model_fp}", flush=True)
 
 
 def get_asr_model():
