@@ -12,6 +12,7 @@ function buildCampaignSystemPrompt(campaign: {
   name: string;
   description: string | null;
   notes: string;
+  styleInstructions: string | null;
   members: Array<{
     role: string;
     guestName: string | null;
@@ -55,7 +56,7 @@ Tone & Style:
 - If something was funny, chaotic, or gloriously dumb, let that energy show
 - Combat highlights should read like a sports announcer calling the play, not a police report
 - Even factual fields should have a voice — avoid dry bullet points
-
+${campaign.styleInstructions?.trim() ? `\nDM's Style Instructions (these take priority — follow them closely):\n${campaign.styleInstructions.trim()}\n` : ''}
 You must respond with ONLY valid JSON — no markdown, no code fences, no preamble. The JSON must have exactly this structure:
 
 {
@@ -148,7 +149,11 @@ export async function POST(
 
     const campaign = await prisma.campaign.findUnique({
       where: { id: params.id },
-      include: {
+      select: {
+        name: true,
+        description: true,
+        notes: true,
+        styleInstructions: true,
         members: {
           include: {
             user: { select: { name: true, email: true } },

@@ -67,6 +67,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (body?.name !== undefined) data.name = body.name.toString().trim();
     if (body?.description !== undefined) data.description = body.description.toString().trim() || null;
     if (body?.notes !== undefined) data.notes = body.notes.toString();
+    if (body?.styleInstructions !== undefined) data.styleInstructions = body.styleInstructions.toString().trim() || null;
 
     const campaign = await prisma.campaign.update({
       where: { id: params.id },

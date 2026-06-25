@@ -46,6 +46,7 @@ interface SessionLog {
   corrections: string | null;
   generatedOutput: GeneratedOutput | null;
   attendees: string[] | null;
+  shareToken: string | null;
   transcriptStatus: string | null;
   transcriptError: string | null;
   audioPath: string | null;
@@ -96,6 +97,7 @@ export default function SessionLogPage() {
   const [attendees, setAttendees] = useState<string[]>([]);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -219,6 +221,22 @@ export default function SessionLogPage() {
     });
   }
 
+  async function handleShare() {
+    let token = log?.shareToken;
+    if (!token) {
+      token = crypto.randomUUID();
+      await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shareToken: token }),
+      });
+      setLog(prev => prev ? { ...prev, shareToken: token! } : prev);
+    }
+    await navigator.clipboard.writeText(`${window.location.origin}/share/${token}`);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2500);
+  }
+
   function seekToSegment(start: number, index: number) {
     const audio = audioRef.current;
     if (!audio) return;
@@ -308,6 +326,15 @@ export default function SessionLogPage() {
                 ? (hasCorrections ? '↺ Regenerate with Corrections' : '↺ Regenerate')
                 : '✦ Generate Log'}
           </button>
+          {output && (
+            <button
+              className="ink-btn ghost"
+              onClick={handleShare}
+              style={{ fontSize: 12 }}
+            >
+              {shareCopied ? '✓ Copied!' : '🔗 Share'}
+            </button>
+          )}
           <button
             className="ink-btn danger"
             onClick={handleDelete}

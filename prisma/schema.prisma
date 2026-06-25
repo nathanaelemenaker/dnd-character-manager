@@ -281,9 +281,10 @@ model AuditEvent {
 
 model Campaign {
   id          String   @id @default(cuid())
-  name        String
-  description String?
-  notes       String   @default("")
+  name               String
+  description        String?
+  notes              String   @default("")
+  styleInstructions  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -335,6 +336,7 @@ model SessionLog {
   corrections      String?
   generatedOutput  Json?
   attendees        Json?
+  shareToken       String?  @unique
   transcriptStatus String?
   transcriptError  String?
   audioPath        String?

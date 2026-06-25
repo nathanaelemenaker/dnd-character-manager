@@ -37,6 +37,7 @@ interface Campaign {
   name: string;
   description: string | null;
   notes: string;
+  styleInstructions: string | null;
   members: CampaignMember[];
   sessions: SessionSummary[];
   _count: { sessions: number };
@@ -717,8 +718,27 @@ function CampaignSettings({ campaign, onSaved }: { campaign: Campaign; onSaved: 
   const router = useRouter();
   const [name, setName] = useState(campaign.name);
   const [description, setDescription] = useState(campaign.description ?? '');
+  const [styleInstructions, setStyleInstructions] = useState(campaign.styleInstructions ?? '');
+  const [styleStatus, setStyleStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const styleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  function handleStyleChange(val: string) {
+    setStyleInstructions(val);
+    setStyleStatus('saving');
+    if (styleTimerRef.current) clearTimeout(styleTimerRef.current);
+    styleTimerRef.current = setTimeout(async () => {
+      await fetch(`/api/campaigns/${campaign.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ styleInstructions: val }),
+      });
+      setStyleStatus('saved');
+      onSaved();
+      setTimeout(() => setStyleStatus('idle'), 2000);
+    }, 1000);
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -762,6 +782,40 @@ function CampaignSettings({ campaign, onSaved }: { campaign: Campaign; onSaved: 
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </form>
+
+      <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: 24, marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700, color: 'var(--ink)', letterSpacing: 0.5 }}>
+              AI Style Instructions
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginTop: 4, maxWidth: 480 }}>
+              Tell Claude how to write the session log. Overrides the default bard voice. Leave blank to use the default.
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: styleStatus === 'saved' ? '#2e7d32' : 'var(--border)', fontStyle: 'italic', minWidth: 60, textAlign: 'right' }}>
+            {styleStatus === 'saving' ? 'Saving…' : styleStatus === 'saved' ? '✓ Saved' : 'Auto-saves'}
+          </div>
+        </div>
+        <textarea
+          style={{
+            width: '100%',
+            minHeight: 120,
+            border: '1.5px solid var(--border-light)',
+            borderRadius: 4,
+            padding: '10px 12px',
+            fontFamily: 'var(--font-body)',
+            fontSize: 13,
+            lineHeight: 1.7,
+            color: 'var(--ink)',
+            background: 'var(--parchment)',
+            resize: 'vertical',
+          }}
+          value={styleInstructions}
+          onChange={e => handleStyleChange(e.target.value)}
+          placeholder={`Examples:\n"Write in a casual, funny tone — we're a chaotic group and the log should reflect that."\n"Keep it concise, 2 paragraphs max for the summary."\n"Write in second person, addressing the party directly."`}
+        />
+      </div>
 
       <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: 24 }}>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: 'var(--red)', letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' }}>
