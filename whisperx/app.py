@@ -80,6 +80,7 @@ def get_diarize_pipeline():
 class DiarizeRequest(BaseModel):
     path: str
     language: Optional[str] = "en"
+    min_speakers: Optional[int] = None
     max_speakers: Optional[int] = None
 
 
@@ -115,6 +116,8 @@ def diarize(req: DiarizeRequest):
         # 3 — Diarize
         pipeline = get_diarize_pipeline()
         diarize_kwargs = {}
+        if req.min_speakers:
+            diarize_kwargs["min_speakers"] = req.min_speakers
         if req.max_speakers:
             diarize_kwargs["max_speakers"] = req.max_speakers
         diarize_segments = pipeline(audio, **diarize_kwargs)

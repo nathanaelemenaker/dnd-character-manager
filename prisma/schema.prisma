@@ -334,6 +334,7 @@ model SessionLog {
   speakerMap       Json?
   corrections      String?
   generatedOutput  Json?
+  attendees        Json?
   transcriptStatus String?
   transcriptError  String?
   audioPath        String?

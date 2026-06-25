@@ -45,6 +45,7 @@ interface SessionLog {
   speakerMap: Record<string, string> | null;
   corrections: string | null;
   generatedOutput: GeneratedOutput | null;
+  attendees: string[] | null;
   transcriptStatus: string | null;
   transcriptError: string | null;
   audioPath: string | null;
@@ -92,6 +93,7 @@ export default function SessionLogPage() {
   const [editingCorrections, setEditingCorrections] = useState(false);
   const [draftCorrections, setDraftCorrections] = useState('');
   const [savingCorrections, setSavingCorrections] = useState(false);
+  const [attendees, setAttendees] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +108,7 @@ export default function SessionLogPage() {
       setLog(sessionData.session);
       setDraftCorrections(sessionData.session.corrections ?? '');
       setSpeakerMapDraft(sessionData.session.speakerMap ?? {});
+      setAttendees((sessionData.session.attendees as string[] | null) ?? []);
       if (campaignRes.ok) {
         const campaignData = await campaignRes.json();
         setCampaignMembers(campaignData.campaign?.members ?? []);
@@ -200,6 +203,18 @@ export default function SessionLogPage() {
     } finally {
       setSavingSpeakerMap(false);
     }
+  }
+
+  async function handleToggleAttendee(memberId: string) {
+    const next = attendees.includes(memberId)
+      ? attendees.filter(id => id !== memberId)
+      : [...attendees, memberId];
+    setAttendees(next);
+    await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attendees: next }),
+    });
   }
 
   if (loading) {
@@ -321,6 +336,54 @@ export default function SessionLogPage() {
               {retranscribeError && <span style={{ fontSize: 11, color: 'var(--red)' }}>{retranscribeError}</span>}
             </div>
           )}
+          {/* Attendee checklist */}
+          {campaignMembers.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8 }}>
+                Who attended?
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {campaignMembers.map(m => {
+                  const name = m.guestName ?? m.user?.name ?? m.user?.email ?? 'Unknown';
+                  const charName = m.guestCharacterName ?? (m as any).character?.name ?? null;
+                  const label = charName ? `${name} / ${charName}` : name;
+                  const checked = attendees.includes(m.id);
+                  return (
+                    <label
+                      key={m.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 12,
+                        padding: '5px 10px',
+                        border: `1px solid ${checked ? 'var(--gold)' : 'var(--border-light)'}`,
+                        borderRadius: 4,
+                        background: checked ? 'rgba(201,162,39,0.08)' : 'transparent',
+                        cursor: 'pointer',
+                        color: checked ? 'var(--ink)' : 'var(--border)',
+                        userSelect: 'none',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => handleToggleAttendee(m.id)}
+                        style={{ margin: 0, accentColor: 'var(--gold)' }}
+                      />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--border)', marginTop: 6, fontStyle: 'italic' }}>
+                {attendees.length > 0
+                  ? `${attendees.length} speaker${attendees.length !== 1 ? 's' : ''} — diarization will look for exactly this many voices`
+                  : 'Select who was there so the transcription knows how many speakers to find'}
+              </div>
+            </div>
+          )}
+
           <RecordButton
             campaignId={params.id}
             sessionId={params.sessionId}

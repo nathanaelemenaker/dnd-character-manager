@@ -26,6 +26,7 @@ async function transcodeToWav(inputPath: string, outputPath: string): Promise<vo
 async function callDiarize(
   wavPath: string,
   whisperUrl: string,
+  minSpeakers?: number,
   maxSpeakers?: number,
 ): Promise<DiarizedSegment[]> {
   const http = await import('node:http');
@@ -33,6 +34,7 @@ async function callDiarize(
   const body = Buffer.from(JSON.stringify({
     path: wavPath,
     language: 'en',
+    ...(minSpeakers ? { min_speakers: minSpeakers } : {}),
     ...(maxSpeakers ? { max_speakers: maxSpeakers } : {}),
   }));
 
@@ -79,8 +81,15 @@ async function runTranscription(sessionId: string, campaignId: string, webmPath:
       data: { transcriptStatus: 'processing' },
     });
 
-    // Count campaign members to hint pyannote's speaker count
+    const sessionData = await prisma.sessionLog.findUnique({
+      where: { id: sessionId },
+      select: { attendees: true },
+    });
+    const attendeeCount = (sessionData?.attendees as string[] | null)?.length;
+
+    // Fall back to total campaign member count if no attendees selected
     const memberCount = await prisma.campaignMember.count({ where: { campaignId } });
+    const speakerCount = attendeeCount || memberCount || undefined;
 
     const whisperUrl = process.env.WHISPER_API_URL ?? 'http://whisper:8000';
 
@@ -88,7 +97,7 @@ async function runTranscription(sessionId: string, campaignId: string, webmPath:
 
     // The WhisperX container shares the /audio NAS mount; pass it the internal path
     const containerWavPath = '/audio/' + path.basename(wavPath);
-    const segments = await callDiarize(containerWavPath, whisperUrl, memberCount || undefined);
+    const segments = await callDiarize(containerWavPath, whisperUrl, speakerCount, speakerCount);
 
     const rawTranscript = renderLabeledTranscript(segments, {});
 
