@@ -7,7 +7,8 @@ import Link from 'next/link';
 interface CampaignMember {
   id: string;
   role: 'DM' | 'PLAYER';
-  user: { id: string; name: string | null; email: string };
+  guestName: string | null;
+  user: { id: string; name: string | null; email: string } | null;
   character: { id: string; name: string } | null;
 }
 
@@ -183,7 +184,7 @@ export default function CampaignsPage() {
                     )}
                     <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--border)' }}>
                       {dm && (
-                        <span>DM: <strong style={{ color: 'var(--ink)' }}>{dm.user.name ?? dm.user.email}</strong></span>
+                        <span>DM: <strong style={{ color: 'var(--ink)' }}>{dm.guestName ?? dm.user?.name ?? dm.user?.email}</strong></span>
                       )}
                       <span>{playerCount} player{playerCount !== 1 ? 's' : ''}</span>
                     </div>
