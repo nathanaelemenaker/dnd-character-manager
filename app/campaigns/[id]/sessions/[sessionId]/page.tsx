@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import RecordButton from '@/components/RecordButton';
@@ -94,6 +94,8 @@ export default function SessionLogPage() {
   const [draftCorrections, setDraftCorrections] = useState('');
   const [savingCorrections, setSavingCorrections] = useState(false);
   const [attendees, setAttendees] = useState<string[]>([]);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [activeSegment, setActiveSegment] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -215,6 +217,23 @@ export default function SessionLogPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ attendees: next }),
     });
+  }
+
+  function seekToSegment(start: number, index: number) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.currentTime = start;
+    setActiveSegment(index);
+    audio.play().catch(() => {});
+  }
+
+  function formatTimestamp(seconds: number): string {
+    const s = Math.max(0, Math.floor(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    return `${h > 0 ? h + ':' : ''}${mm}:${String(sec).padStart(2, '0')}`;
   }
 
   if (loading) {
@@ -858,6 +877,68 @@ export default function SessionLogPage() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recording playback — shown when audio was retained */}
+      {log.audioPath && (
+        <div style={{ marginTop: 16, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 14, marginBottom: 10 }}>Recording</div>
+          <div style={{ fontSize: 12, color: 'var(--border)', marginBottom: 10 }}>
+            Listen back to verify who spoke and check the transcription.
+            {log.diarizedSegments && log.diarizedSegments.length > 0 && ' Click any line below to jump to that moment.'}
+          </div>
+          <audio
+            ref={audioRef}
+            controls
+            preload="metadata"
+            src={`/api/campaigns/${params.id}/sessions/${params.sessionId}/audio`}
+            style={{ width: '100%', maxWidth: 520 }}
+          />
+
+          {log.diarizedSegments && log.diarizedSegments.length > 0 && (
+            <div
+              style={{
+                marginTop: 12,
+                maxHeight: 360,
+                overflowY: 'auto',
+                border: '1px solid var(--border-light)',
+                borderRadius: 4,
+              }}
+            >
+              {log.diarizedSegments.map((seg, i) => {
+                const label = speakerMapDraft[seg.speaker] || log.speakerMap?.[seg.speaker] || seg.speaker;
+                const isActive = activeSegment === i;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => seekToSegment(seg.start, i)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 10px',
+                      border: 'none',
+                      borderBottom: '1px solid var(--border-light)',
+                      background: isActive ? 'rgba(201,162,39,0.12)' : 'transparent',
+                      cursor: 'pointer',
+                      fontSize: 12.5,
+                      lineHeight: 1.45,
+                      color: 'var(--ink)',
+                    }}
+                  >
+                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--gold)', minWidth: 48, flexShrink: 0, paddingTop: 1 }}>
+                      {formatTimestamp(seg.start)}
+                    </span>
+                    <span style={{ fontWeight: 700, minWidth: 90, flexShrink: 0 }}>{label}</span>
+                    <span style={{ color: 'var(--border)' }}>{seg.text}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

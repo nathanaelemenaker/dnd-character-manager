@@ -32,3 +32,4 @@ prisma/generated/
 
 # User-uploaded files — persisted on the host filesystem, not in git
 public/uploads/
+dnd_backup.sql

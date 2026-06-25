@@ -109,11 +109,13 @@ async function runTranscription(sessionId: string, campaignId: string, webmPath:
         diarizedSegments: segments as any,
         speakerMap: {},
         transcriptError: null,
-        audioPath: null,
+        // Keep the webm so it can be played back for verification; audioPath
+        // stays pointing at it (also enables re-transcription from disk).
+        audioPath: webmPath,
       },
     });
 
-    await unlink(webmPath).catch(() => {});
+    // Only the intermediate WAV is removed — it's large and easily regenerated.
     await unlink(wavPath).catch(() => {});
   } catch (err: any) {
     console.error(`Transcription failed for session ${sessionId}:`, err);
