@@ -210,6 +210,24 @@ form { display: grid; gap: 12px; max-width: 420px; }
   }
 }
 
+/* ── Notes tab responsive layout ─────────────────────────────────────────── */
+.notes-layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 10px;
+  min-height: 400px;
+}
+
+@media (max-width: 640px) {
+  .notes-layout {
+    grid-template-columns: 1fr;
+  }
+  .notes-sidebar {
+    max-height: 160px;
+    overflow-y: auto;
+  }
+}
+
 /* ── Print ────────────────────────────────────────────────────────────────── */
 @media print {
   nav, button, .ink-btn, [class*="nav"], [class*="Nav"],

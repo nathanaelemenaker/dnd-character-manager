@@ -87,6 +87,7 @@ type Action =
   | { type: 'REMOVE_INVENTORY'; id: string }
   | { type: 'ADD_FEATURE'; feature: Feature }
   | { type: 'REMOVE_FEATURE'; id: string }
+  | { type: 'UPDATE_FEATURE'; id: string; patch: Partial<Feature> }
   | { type: 'SET_CLASSES'; classes: CharClass[] }
   | { type: 'LONG_REST' }
   | { type: 'SHORT_REST' }
@@ -172,6 +173,7 @@ function reducer(state: SheetState, action: Action): SheetState {
     case 'REMOVE_INVENTORY': return { ...state, inventory: state.inventory.filter((it) => it.id !== action.id) };
     case 'ADD_FEATURE': return { ...state, features: [...state.features, action.feature] };
     case 'REMOVE_FEATURE': return { ...state, features: state.features.filter((f) => f.id !== action.id) };
+    case 'UPDATE_FEATURE': return { ...state, features: state.features.map((f) => f.id === action.id ? { ...f, ...action.patch } : f) };
     case 'SET_CLASSES': return { ...state, classes: action.classes };
     case 'LONG_REST': return { ...state, conditions: [], hp: { ...state.hp, current: state.hp.max, temp: 0 }, deathSaves: { successes: 0, failures: 0 }, spellSlots: state.spellSlots.map((s) => ({ ...s, used: 0 })) };
     case 'TOGGLE_CONDITION': {
@@ -547,6 +549,17 @@ export default function CharacterSheetClient({
     await api(`/features?featureId=${id}`, 'DELETE');
   }
 
+  async function updateFeature(id: string, patch: Partial<Feature>) {
+    dispatch({ type: 'UPDATE_FEATURE', id, patch });
+    await api(`/features?featureId=${id}`, 'PATCH', patch);
+  }
+
+  function toggleInspiration() {
+    const next = !state.inspiration;
+    dispatch({ type: 'SET', payload: { inspiration: next } });
+    saveMeta({ inspiration: next });
+  }
+
   async function saveClasses(classes: CharClass[]) {
     dispatch({ type: 'SET_CLASSES', classes });
     await api('/classes', 'PUT', { classes: classes.map((c) => ({ classKey: c.name, subclassKey: c.subclass || null, subclassNotes: (c as any).subclassNotes || null, level: c.level, hitDie: c.hitDie })) });
@@ -635,7 +648,7 @@ export default function CharacterSheetClient({
   }, [saveConditions]);
 
   const isDM = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
-  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition };
+  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, updateFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition, toggleInspiration };
 
   return (
     <div className={styles.root}>
@@ -682,7 +695,7 @@ export default function CharacterSheetClient({
           ...(isDM ? ['monsters'] : []),
         ].map((t) => (
           <button key={t} className={`${styles.navBtn} ${tab === t ? styles.navActive : ''}`} onClick={() => setTab(t)}>
-            {t === 'monsters' ? '🐉 Monsters' : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'monsters' ? '🐉 Monsters' : t === 'class guide' ? 'Class Guide' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
@@ -895,22 +908,42 @@ function ConditionTracker({ conditions, toggleCondition }: { conditions: string[
           {CONDITIONS.map((c) => {
             const active = conditions.includes(c.name);
             return (
-              <button
+              <div
                 key={c.name}
-                onClick={() => toggleCondition(c.name)}
-                onMouseEnter={() => setTooltip(c.name)}
-                onMouseLeave={() => setTooltip(null)}
                 style={{
-                  padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
-                  fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center',
                   border: `1.5px solid ${active ? c.color : 'var(--border-light)'}`,
+                  borderRadius: 3, overflow: 'hidden',
                   background: active ? c.color : 'transparent',
-                  color: active ? '#fff' : 'var(--border)',
                   transition: 'all 0.1s',
                 }}
               >
-                {c.name}
-              </button>
+                <button
+                  onClick={() => toggleCondition(c.name)}
+                  onMouseEnter={() => setTooltip(c.name)}
+                  onMouseLeave={() => setTooltip(null)}
+                  style={{
+                    padding: '3px 6px 3px 8px', cursor: 'pointer',
+                    fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700,
+                    border: 'none', background: 'transparent',
+                    color: active ? '#fff' : 'var(--border)',
+                  }}
+                >
+                  {c.name}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setTooltip(tooltip === c.name ? null : c.name); }}
+                  title={`${c.name} description`}
+                  style={{
+                    padding: '3px 5px 3px 3px', fontSize: 9, border: 'none',
+                    background: 'transparent', cursor: 'pointer',
+                    color: active ? 'rgba(255,255,255,0.65)' : 'var(--border-light)',
+                    borderLeft: `1px solid ${active ? 'rgba(255,255,255,0.25)' : 'var(--border-light)'}`,
+                  }}
+                >
+                  ℹ
+                </button>
+              </div>
             );
           })}
         </div>
@@ -933,7 +966,7 @@ function ConditionTracker({ conditions, toggleCondition }: { conditions: string[
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, setShowLevelUp, conditions, skillMod }: any) {
+function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration }: any) {
   const init = mods['DEX'];
   return (
     <>
@@ -1073,11 +1106,22 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
       <div className="panel" style={{ marginTop: 10 }}>
         <div className="panel-header">Quick Actions</div>
         <div className="panel-body" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="ink-btn" onClick={longRest} style={{ fontSize: 12 }}>
-            🌙 Long Rest
-          </button>
-          <button className="ink-btn ghost" onClick={() => setShowLevelUp(true)} style={{ fontSize: 12 }}>
-            ⬆ Level Up
+          <button className="ink-btn ghost" onClick={shortRest} style={{ fontSize: 12 }}>🌤 Short Rest</button>
+          <button className="ink-btn" onClick={longRest} style={{ fontSize: 12 }}>🌙 Long Rest</button>
+          <button className="ink-btn ghost" onClick={() => setShowLevelUp(true)} style={{ fontSize: 12 }}>⬆ Level Up</button>
+          <button
+            onClick={toggleInspiration}
+            style={{
+              fontSize: 12, padding: '7px 14px', borderRadius: 3, cursor: 'pointer',
+              fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 0.5,
+              border: '1.5px solid var(--gold)',
+              background: state.inspiration ? 'var(--gold)' : 'transparent',
+              color: state.inspiration ? 'var(--ink)' : 'var(--gold)',
+              transition: 'all 0.15s',
+            }}
+            title={state.inspiration ? 'Inspiration active — click to spend' : 'Click to gain Inspiration'}
+          >
+            ✦ {state.inspiration ? 'Inspired!' : 'Inspiration'}
           </button>
         </div>
       </div>
@@ -1138,10 +1182,20 @@ function AbilitiesTab({ state, dispatch, mods, abs, setAbility, toggleSave, save
         </div>
       </div>
       <div className="panel">
-        <div className="panel-header">Passive Perception</div>
-        <div className="panel-body" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 700 }}>{10 + skillMod('Perception')}</div>
-          <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic' }}>10 + Perception modifier</div>
+        <div className="panel-header">Passive Scores</div>
+        <div className="panel-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+            {[
+              { label: 'Passive Perception',   skill: 'Perception' },
+              { label: 'Passive Insight',       skill: 'Insight' },
+              { label: 'Passive Investigation', skill: 'Investigation' },
+            ].map(({ label, skill }) => (
+              <div key={label} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>{10 + skillMod(skill)}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2, lineHeight: 1.3 }}>{label}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </>
@@ -1411,7 +1465,7 @@ function ActiveStatBonuses({ state, mods, onApplyAC }: {
 }
 
 
-function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition, saveMod, toggleSave }: any) {
+function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition, saveMod, toggleSave, toggleInspiration }: any) {
   return (
     <>
       <ActiveStatBonuses
@@ -1440,6 +1494,21 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>+{state.proficiencyBonus}</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>Prof. Bonus</div>
             </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={toggleInspiration}
+              style={{
+                width: '100%', padding: '6px', borderRadius: 3, cursor: 'pointer',
+                fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                border: '1.5px solid var(--gold)',
+                background: state.inspiration ? 'var(--gold)' : 'transparent',
+                color: state.inspiration ? 'var(--ink)' : 'var(--gold)',
+                transition: 'all 0.15s',
+              }}
+            >
+              ✦ {state.inspiration ? 'Inspiration (Active — click to spend)' : 'Inspiration (click to gain)'}
+            </button>
           </div>
         </div>
       </div>
@@ -1491,12 +1560,22 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
 // ── Initiative Tracker ───────────────────────────────────────────────────────
 interface Combatant { id: string; name: string; initiative: number; hp: number | null; maxHp: number | null; }
 
+const INIT_TRACKER_KEY = 'dnd_initiative_tracker';
+
 function InitiativeTracker() {
-  const [combatants, setCombatants] = useState<Combatant[]>([]);
+  const [combatants, setCombatants] = useState<Combatant[]>(() => {
+    try { const s = sessionStorage.getItem(INIT_TRACKER_KEY); return s ? JSON.parse(s).combatants ?? [] : []; } catch { return []; }
+  });
   const [name, setName] = useState('');
   const [initiative, setInitiative] = useState('');
   const [hp, setHp] = useState('');
-  const [turn, setTurn] = useState(0);
+  const [turn, setTurn] = useState<number>(() => {
+    try { const s = sessionStorage.getItem(INIT_TRACKER_KEY); return s ? JSON.parse(s).turn ?? 0 : 0; } catch { return 0; }
+  });
+
+  useEffect(() => {
+    try { sessionStorage.setItem(INIT_TRACKER_KEY, JSON.stringify({ combatants, turn })); } catch { /* ignore */ }
+  }, [combatants, turn]);
 
   function add() {
     if (!name.trim()) return;
@@ -1830,6 +1909,24 @@ function SkillsTab({ state, cycleSkill, skillMod }: any) {
           </div>
         </div>
       </div>
+      <div className="panel">
+        <div className="panel-header">Passive Scores</div>
+        <div className="panel-body">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+            {[
+              { label: 'Passive Perception',   skill: 'Perception' },
+              { label: 'Passive Insight',       skill: 'Insight' },
+              { label: 'Passive Investigation', skill: 'Investigation' },
+            ].map(({ label, skill }) => (
+              <div key={label} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>{10 + skillMod(skill)}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2, lineHeight: 1.3 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>10 + relevant skill modifier</div>
+        </div>
+      </div>
     </>
   );
 }
@@ -1993,7 +2090,7 @@ function SpellSlotValidator({ classes, spellSlots, addSlots, dismissedKeys, onDi
                 }}>
                 Clear All Slots
               </button>
-              <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={() => setDismissed(true)}>
+              <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={() => onDismiss(validationKey)}>
                 Keep (Homebrew / Multiclass)
               </button>
             </div>
@@ -2063,7 +2160,7 @@ function SpellSlotValidator({ classes, spellSlots, addSlots, dismissedKeys, onDi
               Fix Automatically
             </button>
             <button className="ink-btn ghost" style={{ fontSize: 11 }}
-              onClick={() => setDismissed(true)}>
+              onClick={() => onDismiss(validationKey)}>
               Keep Current (Homebrew)
             </button>
           </div>
@@ -2614,6 +2711,14 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
   const [searched, setSearched] = useState(false);
   const [claudeLoading, setClaudeLoading] = useState(false);
   const [claudeError, setClaudeError] = useState('');
+  const notesTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  function scheduleNotesSave(id: string, notes: string) {
+    if (notesTimers.current[id]) clearTimeout(notesTimers.current[id]);
+    notesTimers.current[id] = setTimeout(() => {
+      patchInventory(id, { notes: notes || null });
+    }, 800);
+  }
 
   // Custom item state
   const [showCustom, setShowCustom] = useState(false);
@@ -2934,7 +3039,10 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
                         <textarea
                           rows={2}
                           value={it.notes ?? ''}
-                          onChange={(e) => dispatch({ type: 'UPDATE_INVENTORY', id: it.id, patch: { notes: e.target.value } })}
+                          onChange={(e) => {
+                            dispatch({ type: 'UPDATE_INVENTORY', id: it.id, patch: { notes: e.target.value } });
+                            scheduleNotesSave(it.id, e.target.value);
+                          }}
                           onBlur={(e) => patchInventory(it.id, { notes: e.target.value || null })}
                           placeholder="Personal notes about this item…"
                           style={{ width: '100%', fontFamily: 'var(--font-body)', fontSize: 12, padding: '4px 6px', border: '1px solid var(--border-light)', borderRadius: 3, background: 'var(--parchment)', resize: 'vertical', color: 'var(--ink)' }}
@@ -2970,7 +3078,7 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
 }
 
 // ── Features ──────────────────────────────────────────────────────────────
-function FeaturesTab({ state, addFeature, removeFeature }: any) {
+function FeaturesTab({ state, addFeature, removeFeature, updateFeature }: any) {
   const [name, setName] = useState('');
   const [source, setSource] = useState('');
   const [desc, setDesc] = useState('');
@@ -2978,6 +3086,8 @@ function FeaturesTab({ state, addFeature, removeFeature }: any) {
   const [claudeLoading, setClaudeLoading] = useState(false);
   const [claudeResult, setClaudeResult] = useState<any>(null);
   const [claudeError, setClaudeError] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Feature | null>(null);
 
   async function lookupFeat() {
     if (!searchQ.trim()) return;
@@ -3014,14 +3124,50 @@ function FeaturesTab({ state, addFeature, removeFeature }: any) {
       <div className="panel-body">
         {state.features.map((f: Feature) => (
           <div key={f.id} style={{ padding: '6px 0', borderBottom: '0.5px solid var(--parchment-dark)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600 }}>{f.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>{f.source}</div>
+            {editingId === f.id && editDraft ? (
+              <div style={{ display: 'grid', gap: 5 }}>
+                <input
+                  type="text"
+                  value={editDraft.name}
+                  onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                  style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12 }}
+                />
+                <input
+                  type="text"
+                  value={editDraft.source}
+                  onChange={(e) => setEditDraft({ ...editDraft, source: e.target.value })}
+                  placeholder="Source"
+                  style={{ fontSize: 11 }}
+                />
+                <textarea
+                  value={editDraft.desc}
+                  onChange={(e) => setEditDraft({ ...editDraft, desc: e.target.value })}
+                  rows={3}
+                  style={{ fontSize: 12, resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="ink-btn" style={{ fontSize: 11 }} onClick={async () => {
+                    if (f.id) await updateFeature(f.id, { name: editDraft.name, source: editDraft.source, desc: editDraft.desc });
+                    setEditingId(null); setEditDraft(null);
+                  }}>Save</button>
+                  <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={() => { setEditingId(null); setEditDraft(null); }}>Cancel</button>
+                </div>
               </div>
-              <button onClick={() => f.id && removeFeature(f.id)} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer' }}>✕</button>
-            </div>
-            {f.desc && <div style={{ fontSize: 12, color: 'var(--ink-light)', marginTop: 3, lineHeight: 1.4 }}>{f.desc}</div>}
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => { setEditingId(f.id ?? null); setEditDraft({ ...f }); }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600 }}>{f.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>{f.source}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => { setEditingId(f.id ?? null); setEditDraft({ ...f }); }} style={{ fontSize: 10, background: 'none', border: '1px solid var(--border-light)', color: 'var(--border)', cursor: 'pointer', borderRadius: 2, padding: '1px 6px' }} title="Edit feature">✎</button>
+                    <button onClick={() => f.id && removeFeature(f.id)} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer' }}>✕</button>
+                  </div>
+                </div>
+                {f.desc && <div style={{ fontSize: 12, color: 'var(--ink-light)', marginTop: 3, lineHeight: 1.4 }}>{f.desc}</div>}
+              </>
+            )}
           </div>
         ))}
         {state.features.length === 0 && <div className="empty-state">No features yet</div>}
@@ -3080,16 +3226,18 @@ interface CampaignMembership {
 function CampaignsTab({ characterId }: { characterId: string }) {
   const [memberships, setMemberships] = useState<CampaignMembership[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     fetch(`/api/characters/${characterId}/campaigns`, { credentials: 'include' })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then(d => setMemberships(d.memberships ?? []))
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [characterId]);
 
   if (loading) return <div className="empty-state">Loading…</div>;
+  if (error) return <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--red)', fontSize: 12 }}>Failed to load campaigns. Please refresh.</div>;
 
   if (memberships.length === 0) {
     return (
@@ -3109,7 +3257,7 @@ function CampaignsTab({ characterId }: { characterId: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {memberships.map(m => {
-        const dm = m.campaign.members[0];
+        const dmMember = m.campaign.members.find((mem: any) => mem.role === 'DM') ?? m.campaign.members[0];
         const lastSession = m.campaign.sessions[0];
         return (
           <a key={m.id} href={`/campaigns/${m.campaign.id}`} style={{ textDecoration: 'none' }}>
@@ -3132,7 +3280,7 @@ function CampaignsTab({ characterId }: { characterId: string }) {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--border)' }}>
-                  {dm && <span>DM: <strong style={{ color: 'var(--ink)' }}>{dm.user.name ?? dm.user.email}</strong></span>}
+                  {dmMember && <span>DM: <strong style={{ color: 'var(--ink)' }}>{dmMember.user.name ?? dmMember.user.email}</strong></span>}
                   {lastSession ? (
                     <span>
                       Last: Session #{lastSession.sessionNumber}
@@ -3191,12 +3339,17 @@ function NotesTab({ characterId }: { characterId: string }) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'New Note', body: '' }),
+        body: JSON.stringify({ title: '', body: '' }),
       });
       const note = await res.json();
       setNotes((prev) => [...prev, note]);
       setActiveId(note.id);
       setPreview(false);
+      // Focus the title input on next render
+      setTimeout(() => {
+        const titleInput = document.querySelector<HTMLInputElement>('.note-title-input');
+        if (titleInput) { titleInput.select(); }
+      }, 50);
     } finally {
       setCreating(false);
     }
@@ -3262,9 +3415,9 @@ function NotesTab({ characterId }: { characterId: string }) {
   if (loading) return <div style={{ padding: 12, color: 'var(--border)' }}>Loading…</div>;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10, minHeight: 400 }}>
+    <div className="notes-layout">
       {/* Sidebar */}
-      <div className="panel" style={{ margin: 0 }}>
+      <div className="panel notes-sidebar" style={{ margin: 0 }}>
         <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>Notes</span>
           <button
@@ -3328,6 +3481,8 @@ function NotesTab({ characterId }: { characterId: string }) {
                 type="text"
                 value={activeNote.title}
                 onChange={onTitleChange}
+                placeholder="Note title…"
+                className="note-title-input"
                 style={{
                   flex: 1,
                   fontFamily: 'var(--font-display)',
@@ -3506,7 +3661,7 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
               <select value={c.hitDie} onChange={(e) => setEditClasses(editClasses.map((ec,j)=>j===i?{...ec,hitDie:parseInt(e.target.value)}:ec))}>
                 {[6,8,10,12].map((d) => <option key={d} value={d}>d{d}</option>)}
               </select>
-              <button onClick={() => setEditClasses(editClasses.filter((_,j)=>j!==i))} style={{ background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer', fontSize: 13 }}>✕</button>
+              <button onClick={() => { if (window.confirm(`Remove ${c.name || 'this class'}?`)) setEditClasses(editClasses.filter((_,j)=>j!==i)); }} style={{ background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer', fontSize: 13 }}>✕</button>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -3538,8 +3693,8 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
         <div className="panel-header">Physical Description</div>
         <div className="panel-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '6px 12px' }}>
-            {['age','height','weight','eyes','skin','hair'].map((k) => (
-              <div key={k}><div className="field-label">{k}</div><input type="text" value={state.bio[k]||''} onChange={(e) => updateBioField(k, e.target.value)} style={{ width: '100%' }} /></div>
+            {[['age','Age'],['height','Height'],['weight','Weight'],['eyes','Eyes'],['skin','Skin'],['hair','Hair']].map(([k,l]) => (
+              <div key={k}><div className="field-label">{l}</div><input type="text" value={state.bio[k]||''} onChange={(e) => updateBioField(k, e.target.value)} style={{ width: '100%' }} /></div>
             ))}
           </div>
         </div>
@@ -3593,9 +3748,11 @@ function PartyTab() {
 
   useEffect(() => { load(); }, [lastRefresh]);
 
-  // Auto-refresh every 30s
+  // Auto-refresh every 30s, paused when browser tab is hidden
   useEffect(() => {
-    const t = setInterval(() => setLastRefresh(Date.now()), 30000);
+    const t = setInterval(() => {
+      if (!document.hidden) setLastRefresh(Date.now());
+    }, 30000);
     return () => clearInterval(t);
   }, []);
 

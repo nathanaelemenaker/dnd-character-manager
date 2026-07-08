@@ -85,6 +85,41 @@ export async function POST(
 }
 
 /**
+ * PATCH /api/characters/[id]/features?featureId=xxx
+ * Body: { name?, source?, desc? }
+ */
+export async function PATCH(
+  req: NextRequest,
+  context: { params: { id: string } }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const ok = await ensureOwner(context.params.id, session.userId);
+  if (!ok) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+  const featureId = req.nextUrl.searchParams.get('featureId');
+  if (!featureId) return NextResponse.json({ error: 'featureId_required' }, { status: 400 });
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const updated = await prisma.characterCustomFeature.updateMany({
+      where: { id: featureId, characterId: context.params.id },
+      data: {
+        ...(body.name    !== undefined && { name:   String(body.name).trim().slice(0, 200) }),
+        ...(body.source  !== undefined && { source: String(body.source).trim().slice(0, 100) }),
+        ...(body.desc    !== undefined && { desc:   String(body.desc).trim().slice(0, 4000) }),
+      },
+    });
+    if (!updated.count) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (e) {
+    console.error('PATCH /features error', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+  }
+}
+
+/**
  * DELETE /api/characters/[id]/features?featureId=xxx
  */
 export async function DELETE(
