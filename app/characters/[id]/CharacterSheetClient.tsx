@@ -3256,9 +3256,9 @@ function CampaignsTab({ characterId }: { characterId: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {memberships.map(m => {
-        const dmMember = m.campaign.members.find((mem: any) => mem.role === 'DM') ?? m.campaign.members[0];
-        const lastSession = m.campaign.sessions[0];
+      {memberships.filter(m => m.campaign != null).map(m => {
+        const dmMember = m.campaign.members?.find((mem: any) => mem.role === 'DM') ?? m.campaign.members?.[0];
+        const lastSession = m.campaign.sessions?.[0];
         return (
           <a key={m.id} href={`/campaigns/${m.campaign.id}`} style={{ textDecoration: 'none' }}>
             <div
@@ -3270,7 +3270,7 @@ function CampaignsTab({ characterId }: { characterId: string }) {
               <div className="panel-header" style={{ justifyContent: 'space-between' }}>
                 <span>{m.campaign.name}</span>
                 <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.75, letterSpacing: 0 }}>
-                  {m.role === 'DM' ? '👑 DM' : 'Player'} · {m.campaign._count.sessions} session{m.campaign._count.sessions !== 1 ? 's' : ''}
+                  {m.role === 'DM' ? '👑 DM' : 'Player'} · {m.campaign._count?.sessions ?? 0} session{(m.campaign._count?.sessions ?? 0) !== 1 ? 's' : ''}
                 </span>
               </div>
               <div className="panel-body" style={{ padding: '10px 12px' }}>
@@ -3280,7 +3280,7 @@ function CampaignsTab({ characterId }: { characterId: string }) {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 14, fontSize: 11, color: 'var(--border)' }}>
-                  {dmMember && <span>DM: <strong style={{ color: 'var(--ink)' }}>{dmMember.user.name ?? dmMember.user.email}</strong></span>}
+                  {dmMember?.user && <span>DM: <strong style={{ color: 'var(--ink)' }}>{dmMember.user.name ?? dmMember.user.email}</strong></span>}
                   {lastSession ? (
                     <span>
                       Last: Session #{lastSession.sessionNumber}
