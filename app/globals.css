@@ -65,8 +65,8 @@
 }
 
 [data-theme="dark"] header {
-  background: #14100a !important;
-  border-color: var(--border-light) !important;
+  background: #0e0b06 !important;
+  border-color: var(--gold) !important;
 }
 
 /* ── Base ─────────────────────────────────────────────────────────────────── */

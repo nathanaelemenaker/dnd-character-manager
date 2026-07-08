@@ -57,40 +57,78 @@ export default function TopNav() {
       )}
 
       <header style={{
-        borderBottom: '1px solid var(--border-light, #e5e5e5)',
-        padding: '0.5rem 0.75rem',
+        borderBottom: '2px solid var(--gold)',
+        padding: '0 0.75rem',
         display: 'flex',
         alignItems: 'center',
-        gap: '0.5rem',
+        gap: '0.75rem',
+        height: 44,
         position: 'sticky',
         top: me?.isImpersonating ? '2.5rem' : 0,
-        background: 'var(--parchment)',
+        background: '#1a1a1a',
         zIndex: 10,
         minWidth: 0,
       }}>
-        <Link href="/" style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600, flexShrink: 0 }}>
-          D&D Sheet
+        <Link href="/" style={{
+          textDecoration: 'none',
+          fontFamily: 'var(--font-display)',
+          fontWeight: 700,
+          fontSize: 15,
+          letterSpacing: '0.5px',
+          color: 'var(--gold-light)',
+          flexShrink: 0,
+        }}>
+          D&amp;D Sheet
         </Link>
 
-        <nav style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-          <Link href="/characters">Characters</Link>
-          <Link href="/campaigns">Campaigns</Link>
+        <div style={{ width: '1px', height: 18, background: 'var(--border)', flexShrink: 0 }} />
+
+        <nav style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
+          <Link href="/characters" style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '0.5px',
+            color: '#c8b99a',
+            textDecoration: 'none',
+            padding: '0 8px',
+            lineHeight: '42px',
+            borderBottom: '2px solid transparent',
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+          onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--gold-light)'; (e.target as HTMLElement).style.borderBottomColor = 'var(--gold)'; }}
+          onMouseLeave={e => { (e.target as HTMLElement).style.color = '#c8b99a'; (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}
+          >Characters</Link>
+          <Link href="/campaigns" style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: '0.5px',
+            color: '#c8b99a',
+            textDecoration: 'none',
+            padding: '0 8px',
+            lineHeight: '42px',
+            borderBottom: '2px solid transparent',
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+          onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--gold-light)'; (e.target as HTMLElement).style.borderBottomColor = 'var(--gold)'; }}
+          onMouseLeave={e => { (e.target as HTMLElement).style.color = '#c8b99a'; (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}
+          >Campaigns</Link>
         </nav>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          {/* Dark mode toggle */}
           <button
             onClick={toggleTheme}
             title={darkMode ? 'Switch to light mode' : 'Switch to candlelight mode'}
             style={{
               background: 'none',
-              border: '1px solid var(--border-light)',
-              borderRadius: 6,
+              border: '1px solid var(--border)',
+              borderRadius: 4,
               padding: '3px 7px',
               cursor: 'pointer',
-              fontSize: 14,
+              fontSize: 13,
               lineHeight: 1,
-              color: 'var(--ink)',
+              color: '#c8b99a',
               flexShrink: 0,
             }}
           >
@@ -99,39 +137,31 @@ export default function TopNav() {
 
           {!loading && isAdmin && (
             <>
-              {/* Role badge — always visible, clicking opens admin panel */}
               <span
                 title={`Role: ${me.role} — tap to open Admin Panel`}
                 onClick={() => setShowAdmin(true)}
                 style={{
-                  fontSize: 11,
+                  fontSize: 10,
                   padding: '2px 6px',
                   borderRadius: 999,
-                  background: me.role === 'SUPER_ADMIN' ? '#fff0f0' : '#ecf5ff',
-                  color: me.role === 'SUPER_ADMIN' ? '#8b1a1a' : '#0b63ce',
-                  border: `1px solid ${me.role === 'SUPER_ADMIN' ? '#f5c6c6' : '#d5e9ff'}`,
+                  background: me.role === 'SUPER_ADMIN' ? 'rgba(139,26,26,0.3)' : 'rgba(11,99,206,0.2)',
+                  color: me.role === 'SUPER_ADMIN' ? '#ffaaaa' : '#7ec8ff',
+                  border: `1px solid ${me.role === 'SUPER_ADMIN' ? '#8b1a1a' : '#0b63ce'}`,
                   cursor: 'pointer',
                   flexShrink: 0,
                   whiteSpace: 'nowrap',
+                  fontFamily: 'var(--font-display)',
+                  fontWeight: 700,
+                  letterSpacing: '0.5px',
                 }}
               >
                 {me.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin'}
               </span>
 
-              {/* "Admin Panel" button — hidden on mobile */}
               <button
                 onClick={() => setShowAdmin(true)}
-                className="topnav-admin-btn"
-                style={{
-                  fontSize: 12,
-                  padding: '3px 8px',
-                  border: '1px solid #ccc',
-                  borderRadius: 6,
-                  background: '#fafafa',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                }}
+                className="ink-btn ghost topnav-admin-btn"
+                style={{ fontSize: 11, padding: '3px 8px', minHeight: 'unset', flexShrink: 0, whiteSpace: 'nowrap' }}
               >
                 Admin Panel
               </button>
@@ -140,14 +170,14 @@ export default function TopNav() {
 
           {!loading && me ? (
             <>
-              {/* Email — hidden on mobile */}
               <span className="topnav-email" style={{
-                fontSize: 12,
-                color: '#666',
+                fontSize: 11,
+                color: '#7a6a50',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 minWidth: 0,
+                fontStyle: 'italic',
               }}>
                 {me.email}
               </span>
@@ -155,8 +185,8 @@ export default function TopNav() {
             </>
           ) : !loading ? (
             <>
-              <Link href="/auth/login">Login</Link>
-              <Link href="/auth/register">Register</Link>
+              <Link href="/auth/login" style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: '#c8b99a', textDecoration: 'none', letterSpacing: '0.5px' }}>Login</Link>
+              <Link href="/auth/register" style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: '#c8b99a', textDecoration: 'none', letterSpacing: '0.5px' }}>Register</Link>
             </>
           ) : null}
         </div>
