@@ -732,7 +732,7 @@ export default function CharacterSheetClient({
         {tab === 'notes'       && <NotesTab characterId={cid} />}
         {tab === 'campaigns'   && <CampaignsTab characterId={cid} />}
         {tab === 'party'       && <PartyTab />}
-        {tab === 'bio'         && <BioTab        {...tabProps} />}
+        {tab === 'bio'         && <BioTab        {...tabProps} characterId={cid} />}
         {tab === 'class guide' && <ClassGuideTab classes={state.classes} currentLevel={state.level} saveClasses={saveClasses} features={state.features} addFeature={addFeature} race={state.race} />}
         {tab === 'monsters' && isDM && <MonsterTab />}
       </div>
@@ -3563,7 +3563,7 @@ function NotesTab({ characterId }: { characterId: string }) {
 }
 
 // ── Bio ───────────────────────────────────────────────────────────────────
-function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, deleteCharacter, setShowLevelUp }: any) {
+function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, deleteCharacter, setShowLevelUp, characterId }: any) {
   const [editName, setEditName] = useState(state.name);
   const [editLevel, setEditLevel] = useState(state.level);
   const [saving, setSaving] = useState(false);
@@ -3597,7 +3597,7 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
     // Persist to server
     const formData = new FormData();
     formData.append('portrait', file);
-    fetch(`/api/characters/${state.id}/portrait`, {
+    fetch(`/api/characters/${characterId}/portrait`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
@@ -3681,7 +3681,7 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
             <button className="ink-btn" onClick={() => fileRef.current?.click()}>Upload Portrait</button>
             {state.portrait && <button className="ink-btn danger" style={{ marginLeft: 8 }} onClick={() => {
               dispatch({ type: 'SET', payload: { portrait: null } });
-              fetch(`/api/characters/${state.id}/portrait`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
+              fetch(`/api/characters/${characterId}/portrait`, { method: 'DELETE', credentials: 'include' }).catch(() => {});
             }}>Remove</button>}
             <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginTop: 4 }}>PNG or JPG</div>
           </div>
