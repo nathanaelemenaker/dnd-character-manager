@@ -83,57 +83,76 @@ export default function TopNav() {
 
         <div style={{ width: '1px', height: 18, background: 'var(--border)', flexShrink: 0 }} />
 
-        <nav style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
-          <Link href="/characters" style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '0.5px',
-            color: '#c8b99a',
-            textDecoration: 'none',
-            padding: '0 8px',
-            lineHeight: '42px',
-            borderBottom: '2px solid transparent',
-            transition: 'color 0.15s, border-color 0.15s',
-          }}
-          onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--gold-light)'; (e.target as HTMLElement).style.borderBottomColor = 'var(--gold)'; }}
-          onMouseLeave={e => { (e.target as HTMLElement).style.color = '#c8b99a'; (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}
-          >Characters</Link>
-          <Link href="/campaigns" style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '0.5px',
-            color: '#c8b99a',
-            textDecoration: 'none',
-            padding: '0 8px',
-            lineHeight: '42px',
-            borderBottom: '2px solid transparent',
-            transition: 'color 0.15s, border-color 0.15s',
-          }}
-          onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--gold-light)'; (e.target as HTMLElement).style.borderBottomColor = 'var(--gold)'; }}
-          onMouseLeave={e => { (e.target as HTMLElement).style.color = '#c8b99a'; (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}
-          >Campaigns</Link>
-        </nav>
+        {me && (
+          <nav style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
+            <Link href="/characters" style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.5px',
+              color: '#c8b99a',
+              textDecoration: 'none',
+              padding: '0 8px',
+              lineHeight: '42px',
+              borderBottom: '2px solid transparent',
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--gold-light)'; (e.target as HTMLElement).style.borderBottomColor = 'var(--gold)'; }}
+            onMouseLeave={e => { (e.target as HTMLElement).style.color = '#c8b99a'; (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}
+            >Characters</Link>
+            <Link href="/campaigns" style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.5px',
+              color: '#c8b99a',
+              textDecoration: 'none',
+              padding: '0 8px',
+              lineHeight: '42px',
+              borderBottom: '2px solid transparent',
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { (e.target as HTMLElement).style.color = 'var(--gold-light)'; (e.target as HTMLElement).style.borderBottomColor = 'var(--gold)'; }}
+            onMouseLeave={e => { (e.target as HTMLElement).style.color = '#c8b99a'; (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}
+            >Campaigns</Link>
+          </nav>
+        )}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <button
-            onClick={toggleTheme}
-            title={darkMode ? 'Switch to light mode' : 'Switch to candlelight mode'}
-            style={{
-              background: 'none',
-              border: '1px solid var(--border)',
-              borderRadius: 4,
-              padding: '3px 7px',
-              cursor: 'pointer',
-              fontSize: 13,
-              lineHeight: 1,
-              color: '#c8b99a',
-              flexShrink: 0,
-            }}
-          >
-            {darkMode ? '☀' : '🕯'}
-          </button>
+          <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
+            <button
+              onClick={() => darkMode && toggleTheme()}
+              title="Daylight mode"
+              style={{
+                background: !darkMode ? 'var(--gold)' : 'transparent',
+                color: !darkMode ? '#1a1a1a' : '#7a6a50',
+                border: 'none',
+                padding: '3px 8px',
+                cursor: darkMode ? 'pointer' : 'default',
+                fontSize: 11,
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                lineHeight: 1.6,
+              }}
+            >☀ Day</button>
+            <button
+              onClick={() => !darkMode && toggleTheme()}
+              title="Candlelight mode"
+              style={{
+                background: darkMode ? 'var(--gold)' : 'transparent',
+                color: darkMode ? '#1a1a1a' : '#7a6a50',
+                border: 'none',
+                padding: '3px 8px',
+                cursor: !darkMode ? 'pointer' : 'default',
+                fontSize: 11,
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
+                letterSpacing: '0.5px',
+                lineHeight: 1.6,
+              }}
+            >🕯 Dark</button>
+          </div>
 
           {!loading && isAdmin && (
             <>
@@ -185,7 +204,9 @@ export default function TopNav() {
             </>
           ) : !loading ? (
             <>
-              <Link href="/auth/login" style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: '#c8b99a', textDecoration: 'none', letterSpacing: '0.5px' }}>Login</Link>
+              <Link href="/auth/login" style={{ textDecoration: 'none' }}>
+                <button className="ink-btn" style={{ fontSize: 11, padding: '4px 12px', minHeight: 'unset' }}>Login</button>
+              </Link>
               <Link href="/auth/register" style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: '#c8b99a', textDecoration: 'none', letterSpacing: '0.5px' }}>Register</Link>
             </>
           ) : null}

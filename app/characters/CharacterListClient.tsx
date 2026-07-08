@@ -126,7 +126,7 @@ export default function CharacterListClient({ characters }: { characters: Charac
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              style={{ flex: 1, padding: '7px 10px', fontFamily: 'var(--font-body)', fontSize: 14 }}
+              style={{ flex: 1, padding: '8px 10px', border: '1.5px solid var(--border-light)', borderRadius: 3, background: 'var(--parchment)', color: 'var(--ink)', fontFamily: 'var(--font-body)', fontSize: 14 }}
               autoFocus
             />
             <button

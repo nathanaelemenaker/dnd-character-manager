@@ -68,16 +68,38 @@ export default function CampaignsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, color: 'var(--ink)', margin: 0, letterSpacing: 1 }}>
-            Campaigns
-          </h1>
-          <p style={{ color: 'var(--border)', fontStyle: 'italic', margin: '4px 0 0', fontSize: 14 }}>
-            Session logs and party chronicles
-          </p>
+    <div style={{ minHeight: '100vh', background: 'var(--parchment-dark)', fontFamily: 'var(--font-body)' }}>
+      {/* Hero header — matches Characters page */}
+      <div style={{
+        background: 'var(--ink)',
+        borderBottom: '3px solid var(--gold)',
+        padding: '20px 16px 14px',
+        textAlign: 'center',
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: 4,
+          color: 'var(--gold)',
+          textTransform: 'uppercase',
+          marginBottom: 4,
+        }}>
+          Your Chronicles
         </div>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 22,
+          fontWeight: 700,
+          color: 'var(--gold-light)',
+          letterSpacing: 1,
+        }}>
+          Campaigns
+        </div>
+      </div>
+
+    <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
         <button className="ink-btn" onClick={() => setShowCreate(v => !v)}>
           {showCreate ? 'Cancel' : '+ New Campaign'}
         </button>
@@ -101,7 +123,7 @@ export default function CampaignsPage() {
           <div style={{ marginBottom: 12 }}>
             <div className="field-label">Campaign Name *</div>
             <input
-              style={{ width: '100%', border: '1px solid var(--border-light)', borderRadius: 3, padding: '6px 8px', fontFamily: 'var(--font-body)', fontSize: 14 }}
+              style={{ width: '100%', padding: '8px 10px', border: '1.5px solid var(--border-light)', borderRadius: 3, background: 'var(--parchment)', color: 'var(--ink)', fontFamily: 'var(--font-body)', fontSize: 14, boxSizing: 'border-box' }}
               value={newName}
               onChange={e => setNewName(e.target.value)}
               placeholder="e.g. The Sunken Kingdom"
@@ -111,7 +133,7 @@ export default function CampaignsPage() {
           <div style={{ marginBottom: 16 }}>
             <div className="field-label">Description (optional)</div>
             <textarea
-              style={{ width: '100%', border: '1px solid var(--border-light)', borderRadius: 3, padding: '6px 8px', fontFamily: 'var(--font-body)', fontSize: 14, resize: 'vertical', minHeight: 60 }}
+              style={{ width: '100%', padding: '8px 10px', border: '1.5px solid var(--border-light)', borderRadius: 3, background: 'var(--parchment)', color: 'var(--ink)', fontFamily: 'var(--font-body)', fontSize: 14, resize: 'vertical', minHeight: 60, boxSizing: 'border-box' }}
               value={newDesc}
               onChange={e => setNewDesc(e.target.value)}
               placeholder="Brief description of the campaign setting or plot..."
@@ -195,6 +217,7 @@ export default function CampaignsPage() {
           })}
         </div>
       )}
+    </div>
     </div>
   );
 }
