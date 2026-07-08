@@ -63,9 +63,7 @@ export default function HomePage() {
       {/* Quick links */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Link href="/characters" style={{ textDecoration: 'none' }}>
-          <div className="panel" style={{ cursor: 'pointer', transition: 'border-color 0.15s' }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold)')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
+          <div className="panel panel-link" style={{ cursor: 'pointer', transition: 'border-color 0.15s' }}>
             <div className="panel-header">Characters</div>
             <div className="panel-body" style={{ fontSize: 13, color: 'var(--ink-light)', fontStyle: 'italic' }}>
               View and manage your party's character sheets.
@@ -73,9 +71,7 @@ export default function HomePage() {
           </div>
         </Link>
         <Link href="/campaigns" style={{ textDecoration: 'none' }}>
-          <div className="panel" style={{ cursor: 'pointer', transition: 'border-color 0.15s' }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold)')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '')}>
+          <div className="panel panel-link" style={{ cursor: 'pointer', transition: 'border-color 0.15s' }}>
             <div className="panel-header">Campaigns</div>
             <div className="panel-body" style={{ fontSize: 13, color: 'var(--ink-light)', fontStyle: 'italic' }}>
               Session recordings, notes, and campaign history.

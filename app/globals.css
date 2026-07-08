@@ -138,6 +138,8 @@ form { display: grid; gap: 12px; max-width: 420px; }
 .result-name { font-family: var(--font-display); font-size: 12px; font-weight: 600; }
 .result-meta { font-size: 11px; color: var(--border); font-style: italic; }
 
+.panel-link:hover { border-color: var(--gold) !important; }
+
 .detail-card { border: 1.5px solid var(--gold); border-radius: 4px; padding: 10px; background: var(--parchment); margin-bottom: 8px; }
 .detail-title { font-family: var(--font-display); font-size: 14px; font-weight: 700; margin-bottom: 2px; }
 .detail-subtitle { font-size: 11px; color: var(--border); font-style: italic; margin-bottom: 6px; }
