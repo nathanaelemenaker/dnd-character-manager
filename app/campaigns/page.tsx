@@ -36,6 +36,7 @@ export default function CampaignsPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/campaigns');
+      if (res.status === 401) { router.replace('/auth/login'); return; }
       if (!res.ok) throw new Error('Failed to load campaigns');
       const data = await res.json();
       setCampaigns(data.campaigns);
@@ -44,7 +45,7 @@ export default function CampaignsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => { load(); }, [load]);
 

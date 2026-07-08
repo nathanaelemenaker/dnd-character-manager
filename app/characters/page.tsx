@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function CharactersPage() {
   const session = await getSession();
-  if (!session) redirect('/login');
+  if (!session) redirect('/auth/login');
 
   const characters = await prisma.character.findMany({
     where: { ownerId: session.userId },
