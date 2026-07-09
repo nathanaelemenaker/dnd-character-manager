@@ -53,6 +53,23 @@ function parseSubclaudeText(text: string): { level: number; features: SrdFeature
     .map(([level, features]) => ({ level, features }));
 }
 
+// Parse Claude plain-text race output into a flat trait list.
+// Expected format: "Trait Name\nDescription\n\nNext Trait\nDescription"
+function parseRaceText(text: string): SrdFeature[] {
+  return text.split(/\n\n+/)
+    .map(block => {
+      const lines = block.trim().split('\n');
+      const name = lines[0]?.trim();
+      if (!name) return null;
+      return {
+        index: `race-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        name,
+        desc: lines.slice(1).join('\n').trim(),
+      };
+    })
+    .filter((t): t is SrdFeature => t !== null && t.name.length > 0);
+}
+
 function SlotPips({ slots }: { slots: number[] }) {
   const hasSlots = slots.some((s) => s > 0);
   if (!hasSlots) return null;
@@ -657,9 +674,15 @@ export default function ClassGuideTab({
               </div>
             )}
             {raceError && <div style={{ fontSize:12, color:'var(--red)', marginBottom: raceText ? 6 : 0 }}>{raceError}</div>}
-            {raceText && !raceLoading && (
-              <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{raceText}</div>
-            )}
+            {raceText && !raceLoading && (() => {
+              const traits = parseRaceText(raceText);
+              if (!traits.length) return (
+                <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{raceText}</div>
+              );
+              return (
+                <RaceTraitList traits={traits} race={race} charFeatures={features} expandedFeature={expandedFeature} setExpandedFeature={setExpandedFeature} handleAddFeature={handleAddFeature} addingFeature={addingFeature} />
+              );
+            })()}
           </div>
         </div>
       )}
@@ -726,6 +749,48 @@ function SubclassProgression({ levels, charLevel, className, subclassName, charF
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Flat trait list (race traits, no level progression) ───────────────────
+function RaceTraitList({ traits, race, charFeatures, expandedFeature, setExpandedFeature, handleAddFeature, addingFeature }: {
+  traits: SrdFeature[]; race: string; charFeatures: Feature[];
+  expandedFeature: string | null; setExpandedFeature: (k: string | null) => void;
+  handleAddFeature: (f: SrdFeature, source: string) => Promise<void>;
+  addingFeature: string | null;
+}) {
+  return (
+    <div>
+      {traits.map(f => {
+        const alreadyHas = charFeatures.some(ef => ef.name.toLowerCase() === f.name.toLowerCase());
+        return (
+          <div key={f.index} style={{ borderBottom:'0.5px solid var(--parchment-dark)', padding:'5px 0' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
+              <span style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</span>
+              <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                {f.desc && (
+                  <button onClick={() => setExpandedFeature(expandedFeature===f.index?null:f.index)}
+                    style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>
+                    {expandedFeature===f.index?'hide':'details'}
+                  </button>
+                )}
+                <button
+                  onClick={() => handleAddFeature(f, race)}
+                  disabled={alreadyHas || addingFeature===f.index}
+                  style={{ fontSize:10, color:alreadyHas?'var(--border)':'var(--gold)', background:'none', border:`1px solid ${alreadyHas?'var(--border-light)':'var(--gold)'}`, borderRadius:2, padding:'1px 6px', cursor:alreadyHas?'default':'pointer', fontFamily:'var(--font-display)', fontWeight:700, opacity:alreadyHas?0.5:1 }}>
+                  {alreadyHas ? '✓ Added' : addingFeature===f.index ? '…' : '+ Add'}
+                </button>
+              </div>
+            </div>
+            {expandedFeature===f.index && (
+              <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>
+                {f.desc || 'See Player\'s Handbook for full description.'}
               </div>
             )}
           </div>

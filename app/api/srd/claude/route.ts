@@ -131,14 +131,16 @@ const RACE_GUIDE_PROMPT = (raceName: string) => `
 You are a D&D 5e rules expert. List all racial traits for a ${raceName} character from any official
 D&D 5e sourcebook (PHB, Mordenkainen's, Volo's Guide, etc.).
 
-Format your response as plain text (no JSON, no markdown headers), like this:
-[Trait Name]
-[Description of what it does mechanically]
+Format each trait as a block separated by a blank line. The first line of each block is the trait
+name (plain text, no bold or punctuation). The remaining lines are the description. Like this:
 
-[Next Trait Name]
-[Description]
+Darkvision
+You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light.
 
-Be concise but complete. Include all traits including subraces if applicable.
+Fey Ancestry
+You have advantage on saving throws against being charmed, and magic can't put you to sleep.
+
+Be concise but complete. Include all traits. If the race has subraces, list the subrace traits separately under a clear subrace heading treated as its own trait block.
 `.trim();
 
 // ── DB cache helpers ──────────────────────────────────────────────────────────
