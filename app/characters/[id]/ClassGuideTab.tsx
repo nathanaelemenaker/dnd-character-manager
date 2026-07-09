@@ -22,6 +22,37 @@ const ph: React.CSSProperties = { background:'var(--ink)', color:'var(--gold-lig
 const panel: React.CSSProperties = { background:'var(--section-bg)', border:'1.5px solid var(--border-light)', borderRadius:4, marginBottom:10, overflow:'hidden' };
 const pb: React.CSSProperties = { padding:10 };
 
+// Parse Claude plain-text subclass output into the same structure as SRD level data.
+// Expected format: "Level 3 — Feature Name\nDescription text\n\nLevel 6 — ..."
+function parseSubclaudeText(text: string): { level: number; features: SrdFeature[] }[] {
+  const headingRe = /^Level\s+(\d+)\s*[—–\-:]\s*(.+)$/i;
+  const flat: { level: number; name: string; descLines: string[] }[] = [];
+  let current: { level: number; name: string; descLines: string[] } | null = null;
+  for (const line of text.split('\n')) {
+    const m = line.trim().match(headingRe);
+    if (m) {
+      if (current) flat.push(current);
+      current = { level: parseInt(m[1]), name: m[2].trim(), descLines: [] };
+    } else if (current) {
+      current.descLines.push(line);
+    }
+  }
+  if (current) flat.push(current);
+
+  const byLevel = new Map<number, SrdFeature[]>();
+  for (const f of flat) {
+    if (!byLevel.has(f.level)) byLevel.set(f.level, []);
+    byLevel.get(f.level)!.push({
+      index: `claude-${f.level}-${f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      name: f.name,
+      desc: f.descLines.join('\n').trim(),
+    });
+  }
+  return Array.from(byLevel.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([level, features]) => ({ level, features }));
+}
+
 function SlotPips({ slots }: { slots: number[] }) {
   const hasSlots = slots.some((s) => s > 0);
   if (!hasSlots) return null;
@@ -453,61 +484,7 @@ export default function ClassGuideTab({
                   </div>
                   {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', padding:'8px 0' }}>Loading feature progression…</div>}
                   {!loading && levels && (
-                    <div style={{ borderTop:'1px solid var(--border-light)', paddingTop:8 }}>
-                      <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--border)', textTransform:'uppercase', letterSpacing:1, marginBottom:6 }}>Feature Progression</div>
-                      {levels.map((lv) => {
-                        const key = `sub-${srdMatch.index}-${lv.level}`;
-                        const isPast = lv.level <= (cls?.level ?? 0);
-                        return (
-                          <div key={lv.level} style={{ borderBottom:'0.5px solid var(--parchment-dark)', opacity: isPast ? 1 : 0.55 }}>
-                            <div onClick={() => setExpandedLevel(expandedLevel===key?null:key)}
-                              style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 4px', cursor:'pointer',
-                                background: lv.level === cls?.level ? 'rgba(201,162,39,0.06)' : 'transparent' }}>
-                              <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:700,
-                                width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
-                                background: lv.level===cls?.level ? 'var(--gold)' : isPast ? 'var(--parchment-dark)' : 'var(--parchment)',
-                                color: lv.level===cls?.level ? 'var(--ink)' : 'var(--border)',
-                                border:`1.5px solid ${lv.level===cls?.level ? 'var(--gold)' : 'var(--border-light)'}`,
-                              }}>{lv.level}</div>
-                              <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:'2px 6px' }}>
-                                {lv.features.map(f => (
-                                  <span key={f.index} style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:600, color: lv.level===cls?.level ? 'var(--ink)' : 'var(--ink-light)' }}>{f.name}</span>
-                                ))}
-                              </div>
-                              <span style={{ fontSize:10, color:'var(--border)', flexShrink:0 }}>{expandedLevel===key?'▲':'▼'}</span>
-                            </div>
-                            {expandedLevel===key && (
-                              <div style={{ padding:'0 8px 10px 42px' }}>
-                                {lv.features.map(f => {
-                                  const alreadyHas = features.some(ef => ef.name.toLowerCase() === f.name.toLowerCase());
-                                  return (
-                                    <div key={f.index} style={{ marginTop:6 }}>
-                                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
-                                        <span style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</span>
-                                        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-                                          {f.desc && <button onClick={() => setExpandedFeature(expandedFeature===f.index?null:f.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedFeature===f.index?'hide':'details'}</button>}
-                                          {isPast && (
-                                            <button onClick={() => handleAddFeature(f, `${cls.name} (${cls.subclass}) ${lv.level}`)} disabled={alreadyHas || addingFeature===f.index}
-                                              style={{ fontSize:10, color: alreadyHas?'var(--border)':'var(--gold)', background:'none', border:`1px solid ${alreadyHas?'var(--border-light)':'var(--gold)'}`, borderRadius:2, padding:'1px 6px', cursor: alreadyHas?'default':'pointer', fontFamily:'var(--font-display)', fontWeight:700, opacity: alreadyHas?0.5:1 }}>
-                                              {alreadyHas ? '✓ Added' : addingFeature===f.index ? '…' : '+ Add'}
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                      {expandedFeature===f.index && (
-                                        <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>
-                                          {f.desc || 'See Player\'s Handbook for full description.'}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <SubclassProgression levels={levels} charLevel={cls?.level ?? 0} className={cls?.name ?? ''} subclassName={cls?.subclass ?? ''} charFeatures={features} expandedLevel={expandedLevel} setExpandedLevel={setExpandedLevel} expandedFeature={expandedFeature} setExpandedFeature={setExpandedFeature} handleAddFeature={handleAddFeature} addingFeature={addingFeature} keyPrefix={`sub-${srdMatch.index}`} />
                   )}
                   {/* SRD options collapsed for reference */}
                   {cd.subclasses.length > 1 && (
@@ -544,42 +521,46 @@ export default function ClassGuideTab({
               const error = subclaudeError[key];
               const src = subclaudeSource[key];
               const cachedAt = subclaudeCachedAt[key];
+              const parsed = text ? parseSubclaudeText(text) : [];
               return (
-                <div style={{ marginBottom:12, padding:'10px 12px', background:'rgba(201,162,39,0.06)', border:'1.5px solid var(--gold)', borderRadius:4 }}>
-                  <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--gold)', letterSpacing:1, marginBottom:6, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:4 }}>
-                    <span>✦ {cls.subclass} — NOT IN SRD</span>
-                    {text && (
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        {src === 'cache' && (
-                          <span style={{ fontSize:9, fontWeight:600, color:'#2e7d32', background:'#e8f4e8', border:'1px solid #a5d6a7', borderRadius:3, padding:'1px 5px', letterSpacing:0.5 }}>
-                            🗄 DATABASE{cachedAt ? ` · ${new Date(cachedAt).toLocaleDateString()}` : ''}
-                          </span>
-                        )}
-                        <button onClick={() => loadSubclaudeFeatures(cls, true)} disabled={loading}
-                          style={{ fontSize:9, color:'var(--border)', background:'none', border:'1px solid var(--border-light)', borderRadius:3, padding:'1px 6px', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:700, letterSpacing:0.5 }}>↺ Regenerate</button>
-                      </div>
-                    )}
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ marginBottom:8, padding:'6px 10px', background:'rgba(201,162,39,0.08)', border:'1.5px solid var(--gold)', borderRadius:4, fontSize:13, display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, flexWrap:'wrap' }}>
+                    <div>
+                      <strong style={{ fontFamily:'var(--font-display)' }}>Your {cd.subclassLabel}:</strong> {cls.subclass}
+                      <span style={{ marginLeft:8, fontSize:9, fontFamily:'var(--font-display)', fontWeight:700, color:'var(--border)', background:'var(--parchment-dark)', border:'1px solid var(--border-light)', borderRadius:3, padding:'1px 5px', letterSpacing:0.5 }}>NOT IN SRD</span>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                      {src === 'cache' && (
+                        <span style={{ fontSize:9, fontWeight:600, color:'#2e7d32', background:'#e8f4e8', border:'1px solid #a5d6a7', borderRadius:3, padding:'1px 5px', letterSpacing:0.5 }}>
+                          🗄 DATABASE{cachedAt ? ` · ${new Date(cachedAt).toLocaleDateString()}` : ''}
+                        </span>
+                      )}
+                      {text && <button onClick={() => loadSubclaudeFeatures(cls, true)} disabled={loading}
+                        style={{ fontSize:9, color:'var(--border)', background:'none', border:'1px solid var(--border-light)', borderRadius:3, padding:'1px 6px', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:700, letterSpacing:0.5 }}>↺ Regenerate</button>}
+                    </div>
                   </div>
                   {!text && !loading && !error && (
-                    <>
+                    <div style={{ padding:'8px 0' }}>
                       <div style={{ fontSize:11, color:'var(--border)', fontStyle:'italic', marginBottom:8, lineHeight:1.5 }}>
-                        This subclass isn't in the SRD database. Claude can look up the feature progression from levels 1–20.
+                        This subclass isn't in the SRD database. Claude can look up the full feature progression.
                       </div>
                       <button className="ink-btn" style={{ fontSize:12 }} onClick={() => loadSubclaudeFeatures(cls)}>
                         ✦ Look Up {cls.subclass} Features
                       </button>
-                    </>
+                    </div>
                   )}
-                  {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic' }}>⏳ {text ? 'Regenerating…' : `Claude is looking up ${cls.subclass} features…`}</div>}
-                  {error && <div style={{ fontSize:12, color:'var(--red)', marginBottom: text ? 6 : 0 }}>{error}</div>}
-                  {text && !loading && (
-                    <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{text}</div>
+                  {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', padding:'8px 0' }}>⏳ {text ? 'Regenerating…' : `Looking up ${cls.subclass} features…`}</div>}
+                  {error && <div style={{ fontSize:12, color:'var(--red)', padding:'4px 0' }}>{error}</div>}
+                  {!loading && parsed.length > 0 && (
+                    <SubclassProgression levels={parsed} charLevel={cls?.level ?? 0} className={cls?.name ?? ''} subclassName={cls?.subclass ?? ''} charFeatures={features} expandedLevel={expandedLevel} setExpandedLevel={setExpandedLevel} expandedFeature={expandedFeature} setExpandedFeature={setExpandedFeature} handleAddFeature={handleAddFeature} addingFeature={addingFeature} keyPrefix={`sub-claude-${cls.name}`} />
                   )}
-                  {/* SRD options for reference if any */}
+                  {!loading && text && parsed.length === 0 && (
+                    <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap', paddingTop:8 }}>{text}</div>
+                  )}
                   {cd.subclasses.length > 0 && (
                     <details style={{ marginTop:10 }}>
                       <summary style={{ fontSize:11, color:'var(--border)', cursor:'pointer', fontStyle:'italic', userSelect:'none' }}>
-                        SRD {cd.subclassLabel} options for reference ({cd.subclasses.map((s: any)=>s.name).join(', ')})
+                        SRD {cd.subclassLabel} options for reference
                       </summary>
                       <div style={{ marginTop:6 }}>
                         {cd.subclasses.map((sc: any) => (
@@ -683,6 +664,74 @@ export default function ClassGuideTab({
         </div>
       )}
     </>
+  );
+}
+
+// ── Shared subclass level progression renderer ─────────────────────────────
+function SubclassProgression({ levels, charLevel, className, subclassName, charFeatures, expandedLevel, setExpandedLevel, expandedFeature, setExpandedFeature, handleAddFeature, addingFeature, keyPrefix }: {
+  levels: { level: number; features: SrdFeature[] }[];
+  charLevel: number; className: string; subclassName: string;
+  charFeatures: Feature[];
+  expandedLevel: string | null; setExpandedLevel: (k: string | null) => void;
+  expandedFeature: string | null; setExpandedFeature: (k: string | null) => void;
+  handleAddFeature: (f: SrdFeature, source: string) => Promise<void>;
+  addingFeature: string | null; keyPrefix: string;
+}) {
+  return (
+    <div style={{ borderTop:'1px solid var(--border-light)', paddingTop:8 }}>
+      <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--border)', textTransform:'uppercase', letterSpacing:1, marginBottom:6 }}>Feature Progression</div>
+      {levels.map((lv) => {
+        const key = `${keyPrefix}-${lv.level}`;
+        const isPast = lv.level <= charLevel;
+        const isCurrent = lv.level === charLevel;
+        return (
+          <div key={lv.level} style={{ borderBottom:'0.5px solid var(--parchment-dark)', opacity: isPast ? 1 : 0.55 }}>
+            <div onClick={() => setExpandedLevel(expandedLevel===key?null:key)}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 4px', cursor:'pointer', background: isCurrent ? 'rgba(201,162,39,0.06)' : 'transparent' }}>
+              <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:700, width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+                background: isCurrent ? 'var(--gold)' : isPast ? 'var(--parchment-dark)' : 'var(--parchment)',
+                color: isCurrent ? 'var(--ink)' : 'var(--border)',
+                border:`1.5px solid ${isCurrent ? 'var(--gold)' : 'var(--border-light)'}`,
+              }}>{lv.level}</div>
+              <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:'2px 6px' }}>
+                {lv.features.map(f => (
+                  <span key={f.index} style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:600, color: isCurrent ? 'var(--ink)' : 'var(--ink-light)' }}>{f.name}</span>
+                ))}
+              </div>
+              <span style={{ fontSize:10, color:'var(--border)', flexShrink:0 }}>{expandedLevel===key?'▲':'▼'}</span>
+            </div>
+            {expandedLevel===key && (
+              <div style={{ padding:'0 8px 10px 42px' }}>
+                {lv.features.map(f => {
+                  const alreadyHas = charFeatures.some(ef => ef.name.toLowerCase() === f.name.toLowerCase());
+                  return (
+                    <div key={f.index} style={{ marginTop:6 }}>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
+                        <span style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</span>
+                        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                          {f.desc && <button onClick={() => setExpandedFeature(expandedFeature===f.index?null:f.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedFeature===f.index?'hide':'details'}</button>}
+                          {isPast && (
+                            <button onClick={() => handleAddFeature(f, `${className} (${subclassName}) ${lv.level}`)} disabled={alreadyHas || addingFeature===f.index}
+                              style={{ fontSize:10, color: alreadyHas?'var(--border)':'var(--gold)', background:'none', border:`1px solid ${alreadyHas?'var(--border-light)':'var(--gold)'}`, borderRadius:2, padding:'1px 6px', cursor:alreadyHas?'default':'pointer', fontFamily:'var(--font-display)', fontWeight:700, opacity:alreadyHas?0.5:1 }}>
+                              {alreadyHas ? '✓ Added' : addingFeature===f.index ? '…' : '+ Add'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {expandedFeature===f.index && (
+                        <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>
+                          {f.desc || 'See Player\'s Handbook for full description.'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
