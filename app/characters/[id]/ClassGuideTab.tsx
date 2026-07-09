@@ -96,6 +96,14 @@ export default function ClassGuideTab({
     load(activeClass);
   }, [activeClass]);
 
+  // Auto-load subclass content when the subclass view is active
+  useEffect(() => {
+    if (viewMode !== 'subclasses' || !cls?.subclass || !cd) return;
+    const srdMatch = cd.subclasses.find((sc: any) => sc.name === cls.subclass);
+    if (srdMatch) loadSubclassLevels(srdMatch.index);
+    else loadSubclaudeFeatures(cls);
+  }, [viewMode, cls?.subclass, cd]);
+
   async function load(name: string) {
     setLoadingMap((p) => ({ ...p, [name]: true }));
     try {
@@ -250,6 +258,7 @@ export default function ClassGuideTab({
             if (m.id === 'subclasses' && cls?.subclass && cd) {
               const srdMatch = cd.subclasses.find((sc: any) => sc.name === cls.subclass);
               if (srdMatch) loadSubclassLevels(srdMatch.index);
+              else loadSubclaudeFeatures(cls);
             }
           }}
             style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, letterSpacing:0.5,
