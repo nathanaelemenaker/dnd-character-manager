@@ -2285,16 +2285,24 @@ function SpellsTab({ state, toggleSlot, addSlot, fixSlots, addSpell, removeSpell
         <div style={{
           padding: '8px 12px', marginBottom: 8,
           background: 'rgba(26,107,154,0.08)', border: '1.5px solid #1a6b9a',
-          borderRadius: 4, display: 'flex', alignItems: 'flex-start', gap: 10,
+          borderRadius: 4,
         }}>
-          <span style={{ fontSize: 16, flexShrink: 0 }}>🔮</span>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: '#1a6b9a', letterSpacing: 0.5 }}>
-              CONCENTRATION ACTIVE
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: '#1a6b9a', letterSpacing: 0.5, marginBottom: 6 }}>
+            🔮 CONCENTRATION ACTIVE
+          </div>
+          {concentrationSpells.map((s: Spell) => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '3px 0', borderTop: '0.5px solid rgba(26,107,154,0.2)' }}>
+              <span style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 600 }}>{s.name}</span>
+              <button
+                onClick={() => s.id && togglePrepared(s.id)}
+                style={{ fontSize: 10, fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 0.5, color: '#1a6b9a', background: 'none', border: '1px solid #1a6b9a', borderRadius: 2, padding: '2px 8px', cursor: 'pointer', flexShrink: 0 }}
+              >
+                End Concentration
+              </button>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-light)', marginTop: 2 }}>
-              {concentrationSpells.map((s: Spell) => s.name).join(', ')} — casting another concentration spell ends this one
-            </div>
+          ))}
+          <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 6 }}>
+            Casting another concentration spell or taking damage may end this.
           </div>
         </div>
       )}
