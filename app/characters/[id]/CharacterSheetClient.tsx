@@ -11,6 +11,7 @@ import {
 import ClassGuideTab from './ClassGuideTab';
 import FloatingCombatPanel from './FloatingCombatPanel';
 import styles from './sheet.module.css';
+import { hitDieForClass } from '@/app/lib/dnd-constants';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Ruleset   = 'SRD_2014' | 'SRD_2024';
@@ -3655,7 +3656,11 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
         <div className="panel-body">
           {editClasses.map((c, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 60px 60px auto', gap: 6, alignItems: 'center', padding: '4px 0', borderBottom: '0.5px solid var(--parchment-dark)' }}>
-              <input type="text" placeholder="Class name" value={c.name} onChange={(e) => setEditClasses(editClasses.map((ec,j)=>j===i?{...ec,name:e.target.value}:ec))} />
+              <input type="text" placeholder="Class name" value={c.name} onChange={(e) => {
+                const name = e.target.value;
+                const knownHitDie = hitDieForClass(name);
+                setEditClasses(editClasses.map((ec, j) => j === i ? { ...ec, name, ...(knownHitDie ? { hitDie: knownHitDie } : {}) } : ec));
+              }} />
               <input type="text" placeholder="Subclass" value={c.subclass} onChange={(e) => setEditClasses(editClasses.map((ec,j)=>j===i?{...ec,subclass:e.target.value}:ec))} />
               <input type="number" min={1} max={20} placeholder="Lvl" value={c.level} onChange={(e) => setEditClasses(editClasses.map((ec,j)=>j===i?{...ec,level:parseInt(e.target.value)||1}:ec))} />
               <select value={c.hitDie} onChange={(e) => setEditClasses(editClasses.map((ec,j)=>j===i?{...ec,hitDie:parseInt(e.target.value)}:ec))}>

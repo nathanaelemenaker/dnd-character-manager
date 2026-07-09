@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { hitDieForClass } from '@/app/lib/dnd-constants';
 
 export interface LevelUpResult {
   hpIncrease: number;
@@ -132,7 +133,7 @@ export default function LevelUpModal({ characterName, newLevel, classes, current
   }
 
   function doConfirm() {
-    const hitDie0 = data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 8;
+    const hitDie0 = data[classes[0]?.name]?.hitDie ?? hitDieForClass(classes[0]?.name ?? '') ?? classes[0]?.hitDie ?? 8;
     const roll = parseInt(hpRoll) || Math.ceil(hitDie0 / 2) + 1;
     const sub = Object.entries(selSubclass)[0];
     const asiResult = needsASI
@@ -415,7 +416,7 @@ export default function LevelUpModal({ characterName, newLevel, classes, current
               <div style={S.pHdr}>Roll for Hit Points</div>
               <div style={S.pBody}>
                 {classes.map((c) => {
-                  const hd = data[c.name]?.hitDie ?? c.hitDie;
+                  const hd = data[c.name]?.hitDie ?? hitDieForClass(c.name) ?? c.hitDie;
                   return (
                     <div key={c.name} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:'0.5px solid var(--parchment-dark)' }}>
                       <div style={{ flex:1 }}>
@@ -432,16 +433,16 @@ export default function LevelUpModal({ characterName, newLevel, classes, current
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
                     <label style={{ fontFamily:'var(--font-display)', fontSize:11, fontWeight:700, color:'var(--border)', textTransform:'uppercase', letterSpacing:0.5 }}>HP rolled:</label>
-                    <input type="number" min={1} max={data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 12} value={hpRoll}
+                    <input type="number" min={1} max={data[classes[0]?.name]?.hitDie ?? hitDieForClass(classes[0]?.name ?? '') ?? classes[0]?.hitDie ?? 12} value={hpRoll}
                       onChange={(e) => setHpRoll(e.target.value)}
-                      placeholder={String(Math.ceil((data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 8)/2)+1)}
+                      placeholder={String(Math.ceil((data[classes[0]?.name]?.hitDie ?? hitDieForClass(classes[0]?.name ?? '') ?? classes[0]?.hitDie ?? 8)/2)+1)}
                       style={{ width:80, textAlign:'center', fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, padding:'4px 8px' }}
                       autoFocus />
                     {hpRoll && <span style={{ fontSize:13, color:'var(--ink)' }}>= <strong>{parseInt(hpRoll)+(conMod)}</strong> HP gained</span>}
                   </div>
                   {/* Quick-pick buttons */}
                   <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                    {Array.from({ length: data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 8 }, (_, i) => i+1).map((v) => (
+                    {Array.from({ length: data[classes[0]?.name]?.hitDie ?? hitDieForClass(classes[0]?.name ?? '') ?? classes[0]?.hitDie ?? 8 }, (_, i) => i+1).map((v) => (
                       <button key={v} onClick={() => setHpRoll(String(v))}
                         style={{ fontFamily:'var(--font-display)', fontSize:11, fontWeight:700, width:32, height:32, borderRadius:3, cursor:'pointer',
                           background: hpRoll===String(v) ? 'var(--ink)' : 'var(--parchment)',
