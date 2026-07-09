@@ -132,7 +132,8 @@ export default function LevelUpModal({ characterName, newLevel, classes, current
   }
 
   function doConfirm() {
-    const roll = parseInt(hpRoll) || Math.ceil((classes[0]?.hitDie ?? 8) / 2) + 1;
+    const hitDie0 = data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 8;
+    const roll = parseInt(hpRoll) || Math.ceil(hitDie0 / 2) + 1;
     const sub = Object.entries(selSubclass)[0];
     const asiResult = needsASI
       ? (Object.entries(asiChoices) as [AbilityKey, number][])
@@ -413,31 +414,34 @@ export default function LevelUpModal({ characterName, newLevel, classes, current
             <div style={S.panel}>
               <div style={S.pHdr}>Roll for Hit Points</div>
               <div style={S.pBody}>
-                {classes.map((c) => (
-                  <div key={c.name} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:'0.5px solid var(--parchment-dark)' }}>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{c.name}</div>
-                      <div style={{ fontSize:11, color:'var(--border)' }}>Hit Die: d{c.hitDie} · Average: {Math.ceil(c.hitDie/2)+1}</div>
+                {classes.map((c) => {
+                  const hd = data[c.name]?.hitDie ?? c.hitDie;
+                  return (
+                    <div key={c.name} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:'0.5px solid var(--parchment-dark)' }}>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{c.name}</div>
+                        <div style={{ fontSize:11, color:'var(--border)' }}>Hit Die: d{hd} · Average: {Math.ceil(hd/2)+1}</div>
+                      </div>
+                      <div style={{ fontFamily:'var(--font-display)', fontSize:22, fontWeight:700, color:'var(--red)', background:'var(--parchment-dark)', border:'1.5px solid var(--border-light)', borderRadius:4, padding:'4px 10px' }}>d{hd}</div>
                     </div>
-                    <div style={{ fontFamily:'var(--font-display)', fontSize:22, fontWeight:700, color:'var(--red)', background:'var(--parchment-dark)', border:'1.5px solid var(--border-light)', borderRadius:4, padding:'4px 10px' }}>d{c.hitDie}</div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div style={{ marginTop:12 }}>
                   <div style={{ fontSize:13, color:'var(--ink-light)', marginBottom:8 }}>
                     Enter how much you rolled. Your CON modifier ({conMod>=0?'+':''}{conMod}) will be added automatically.
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
                     <label style={{ fontFamily:'var(--font-display)', fontSize:11, fontWeight:700, color:'var(--border)', textTransform:'uppercase', letterSpacing:0.5 }}>HP rolled:</label>
-                    <input type="number" min={1} max={classes[0]?.hitDie??12} value={hpRoll}
+                    <input type="number" min={1} max={data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 12} value={hpRoll}
                       onChange={(e) => setHpRoll(e.target.value)}
-                      placeholder={String(Math.ceil((classes[0]?.hitDie??8)/2)+1)}
+                      placeholder={String(Math.ceil((data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 8)/2)+1)}
                       style={{ width:80, textAlign:'center', fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, padding:'4px 8px' }}
                       autoFocus />
                     {hpRoll && <span style={{ fontSize:13, color:'var(--ink)' }}>= <strong>{parseInt(hpRoll)+(conMod)}</strong> HP gained</span>}
                   </div>
                   {/* Quick-pick buttons */}
                   <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-                    {Array.from({ length: classes[0]?.hitDie??8 }, (_, i) => i+1).map((v) => (
+                    {Array.from({ length: data[classes[0]?.name]?.hitDie ?? classes[0]?.hitDie ?? 8 }, (_, i) => i+1).map((v) => (
                       <button key={v} onClick={() => setHpRoll(String(v))}
                         style={{ fontFamily:'var(--font-display)', fontSize:11, fontWeight:700, width:32, height:32, borderRadius:3, cursor:'pointer',
                           background: hpRoll===String(v) ? 'var(--ink)' : 'var(--parchment)',
