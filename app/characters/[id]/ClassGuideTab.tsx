@@ -248,17 +248,22 @@ export default function ClassGuideTab({
   const err = errorMap[activeClass];
 
   // Compute missing features: SRD features at or below current level that aren't in features tab
-  const missingFeatures: Array<{ feature: SrdFeature; level: number; source: string }> = [];
+  const SUBCLASS_KEYWORDS = ['circle', 'archetype', 'domain', 'patron', 'tradition', 'path', 'oath', 'college', 'origin'];
+  const missingFeatures: Array<{ feature: SrdFeature; level: number; source: string; isSubclassUnlock: boolean }> = [];
   if (cd && cls) {
     for (const lv of cd.levels) {
       if (lv.level > cls.level) break;
       for (const f of lv.features) {
+        const isSubclassUnlock = lv.subclassUnlock &&
+          SUBCLASS_KEYWORDS.some(kw => f.name.toLowerCase().includes(kw));
+        // Subclass already chosen — skip the unlock feature entirely
+        if (isSubclassUnlock && cls.subclass) continue;
         const alreadyHas = features.some(
           (ef) => ef.name.toLowerCase() === f.name.toLowerCase() ||
                   ef.name.toLowerCase().includes(f.name.toLowerCase())
         );
         if (!alreadyHas) {
-          missingFeatures.push({ feature: f, level: lv.level, source: `${activeClass} ${lv.level}` });
+          missingFeatures.push({ feature: f, level: lv.level, source: `${activeClass} ${lv.level}`, isSubclassUnlock });
         }
       }
     }
@@ -450,7 +455,20 @@ export default function ClassGuideTab({
                 <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', marginTop:4 }}>Every SRD feature for your current level is in your Features tab.</div>
               </div>
             )}
-            {missingFeatures.map(({ feature: f, source }) => {
+            {missingFeatures.map(({ feature: f, source, isSubclassUnlock }) => {
+              if (isSubclassUnlock) {
+                return (
+                  <div key={f.index} style={{ padding:'7px 0', borderBottom:'0.5px solid var(--parchment-dark)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+                    <div>
+                      <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{cd?.subclassLabel ?? 'Subclass'} — not yet chosen</div>
+                      <div style={{ fontSize:10, color:'var(--border)', fontStyle:'italic' }}>{source}</div>
+                    </div>
+                    <button className="ink-btn ghost" style={{ fontSize:11, padding:'4px 10px' }} onClick={() => setViewMode('subclasses')}>
+                      Choose {cd?.subclassLabel} →
+                    </button>
+                  </div>
+                );
+              }
               return (
                 <div key={f.index} style={{ padding:'7px 0', borderBottom:'0.5px solid var(--parchment-dark)' }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
