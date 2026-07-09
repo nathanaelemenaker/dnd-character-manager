@@ -77,23 +77,42 @@ export default function FloatingCombatPanel({ name, level, hp, ac, speed, profic
   }, [visible, collapsed, pos]);
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
+    const applyMove = (clientX: number, clientY: number) => {
       if (!dragging.current || !panelRef.current) return;
       setPos({
-        x: Math.max(0, Math.min(e.clientX - dragOffset.current.x, window.innerWidth - panelRef.current.offsetWidth)),
-        y: Math.max(0, Math.min(e.clientY - dragOffset.current.y, window.innerHeight - 60 - panelRef.current.offsetHeight)),
+        x: Math.max(0, Math.min(clientX - dragOffset.current.x, window.innerWidth - panelRef.current.offsetWidth)),
+        y: Math.max(0, Math.min(clientY - dragOffset.current.y, window.innerHeight - 60 - panelRef.current.offsetHeight)),
       });
     };
-    const onUp = () => { dragging.current = false; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    const onMouseMove = (e: MouseEvent) => applyMove(e.clientX, e.clientY);
+    const onMouseUp = () => { dragging.current = false; };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!dragging.current) return;
+      e.preventDefault(); // prevent page scroll while dragging
+      applyMove(e.touches[0].clientX, e.touches[0].clientY);
+    };
+    const onTouchEnd = () => { dragging.current = false; };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
   }, []);
 
   const onHeaderMouseDown = (e: React.MouseEvent) => {
     dragging.current = true;
     dragOffset.current = { x: e.clientX - (pos?.x ?? 0), y: e.clientY - (pos?.y ?? 0) };
     e.preventDefault();
+  };
+
+  const onHeaderTouchStart = (e: React.TouchEvent) => {
+    dragging.current = true;
+    dragOffset.current = { x: e.touches[0].clientX - (pos?.x ?? 0), y: e.touches[0].clientY - (pos?.y ?? 0) };
   };
 
   const hpPct = hp.max > 0 ? Math.round((hp.current / hp.max) * 100) : 0;
@@ -143,10 +162,12 @@ export default function FloatingCombatPanel({ name, level, hp, ac, speed, profic
       {/* Drag handle */}
       <div
         onMouseDown={onHeaderMouseDown}
+        onTouchStart={onHeaderTouchStart}
         style={{
           background: 'var(--ink)', color: 'var(--gold-light)',
           padding: '5px 8px', cursor: 'grab', borderRadius: '3px 3px 0 0',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          touchAction: 'none',
         }}
       >
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase' }}>
@@ -155,6 +176,7 @@ export default function FloatingCombatPanel({ name, level, hp, ac, speed, profic
         <div style={{ display: 'flex', gap: 2 }}>
           <button
             onMouseDown={e => e.stopPropagation()}
+            onTouchStart={e => e.stopPropagation()}
             onClick={() => setCollapsed(c => !c)}
             title={collapsed ? 'Expand' : 'Collapse'}
             style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontSize: 13, padding: '0 4px', lineHeight: 1 }}
@@ -163,6 +185,7 @@ export default function FloatingCombatPanel({ name, level, hp, ac, speed, profic
           </button>
           <button
             onMouseDown={e => e.stopPropagation()}
+            onTouchStart={e => e.stopPropagation()}
             onClick={() => setVisible(false)}
             title="Hide"
             style={{ background: 'none', border: 'none', color: 'var(--gold)', cursor: 'pointer', fontSize: 13, padding: '0 4px', lineHeight: 1 }}
