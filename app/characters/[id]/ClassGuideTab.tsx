@@ -91,6 +91,9 @@ export default function ClassGuideTab({
   const [raceSource, setRaceSource] = useState<'cache' | 'claude' | null>(null);
   const [raceCachedAt, setRaceCachedAt] = useState<string | null>(null);
 
+  const cls = classes.find((c) => c.name === activeClass);
+  const cd = data[activeClass];
+
   useEffect(() => {
     if (!activeClass || data[activeClass] || loadingMap[activeClass]) return;
     load(activeClass);
@@ -193,8 +196,6 @@ export default function ClassGuideTab({
     setAddingFeature(null);
   }
 
-  const cls = classes.find((c) => c.name === activeClass);
-  const cd = data[activeClass];
   const isLoading = loadingMap[activeClass];
   const err = errorMap[activeClass];
 
