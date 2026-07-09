@@ -1108,7 +1108,7 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
         <div className="panel-body" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="ink-btn ghost" onClick={shortRest} style={{ fontSize: 12 }}>🌤 Short Rest</button>
           <button className="ink-btn" onClick={longRest} style={{ fontSize: 12 }}>🌙 Long Rest</button>
-          <button className="ink-btn ghost" onClick={() => setShowLevelUp(true)} style={{ fontSize: 12 }}>⬆ Level Up</button>
+          <button className="ink-btn ghost" onClick={() => saveCharacterMeta({ level: Math.min(20, state.level + 1) })} style={{ fontSize: 12 }}>⬆ Level Up</button>
           <button
             onClick={toggleInspiration}
             style={{
