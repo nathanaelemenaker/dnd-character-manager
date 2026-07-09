@@ -73,7 +73,11 @@ export default function ClassGuideTab({
   const [expandedSub, setExpandedSub] = useState<string|null>(null);
   const [addingFeature, setAddingFeature] = useState<string|null>(null);
 
-  // Claude subclass features
+  // SRD subclass level progression
+  const [subclassLevels, setSubclassLevels] = useState<Record<string, { level: number; features: SrdFeature[] }[]>>({});
+  const [subclassLevelsLoading, setSubclassLevelsLoading] = useState<Record<string, boolean>>({});
+
+  // Claude subclass features (non-SRD fallback)
   const [subclaudeText, setSubclaudeText] = useState<Record<string, string>>({});
   const [subclaudeLoading, setSubclaudeLoading] = useState<Record<string, boolean>>({});
   const [subclaudeError, setSubclaudeError] = useState<Record<string, string>>({});
@@ -162,6 +166,18 @@ export default function ClassGuideTab({
     setRaceLoading(false);
   }
 
+  async function loadSubclassLevels(subclassIndex: string) {
+    if (subclassLevels[subclassIndex] || subclassLevelsLoading[subclassIndex]) return;
+    setSubclassLevelsLoading(p => ({ ...p, [subclassIndex]: true }));
+    try {
+      const r = await fetch(`/api/srd/class?name=_&subclass=${encodeURIComponent(subclassIndex)}`);
+      if (!r.ok) throw new Error('Not found');
+      const d = await r.json();
+      setSubclassLevels(p => ({ ...p, [subclassIndex]: d.levels ?? [] }));
+    } catch { /* silently fail — will fall through to Claude lookup */ }
+    setSubclassLevelsLoading(p => ({ ...p, [subclassIndex]: false }));
+  }
+
   async function handleAddFeature(f: SrdFeature, source: string) {
     const id = f.index;
     setAddingFeature(id);
@@ -228,7 +244,14 @@ export default function ClassGuideTab({
       {/* View toggle */}
       <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
         {MODES.map((m) => (
-          <button key={m.id} onClick={() => { setViewMode(m.id); if (m.id === 'race' && !raceText) loadRaceFeatures(); }}
+          <button key={m.id} onClick={() => {
+            setViewMode(m.id);
+            if (m.id === 'race' && !raceText) loadRaceFeatures();
+            if (m.id === 'subclasses' && cls?.subclass && cd) {
+              const srdMatch = cd.subclasses.find((sc: any) => sc.name === cls.subclass);
+              if (srdMatch) loadSubclassLevels(srdMatch.index);
+            }
+          }}
             style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, letterSpacing:0.5,
               padding:'4px 12px', borderRadius:3, cursor:'pointer', textTransform:'uppercase',
               background: viewMode===m.id ? 'var(--ink)' : 'transparent',
@@ -404,17 +427,106 @@ export default function ClassGuideTab({
       {/* ── Subclasses ── */}
       {cd && viewMode==='subclasses' && (
         <div style={panel}>
-          <div style={ph}>{cd.subclassLabel} Options — Unlocks at Level {cd.subclassLevel}</div>
+          <div style={ph}>{cd.subclassLabel} — {cls?.subclass || `Unlocks at Level ${cd.subclassLevel}`}</div>
           <div style={pb}>
-            {cls?.subclass && (
-              <div style={{ marginBottom:10, padding:8, background:'rgba(201,162,39,0.08)', border:'1.5px solid var(--gold)', borderRadius:4, fontSize:13 }}>
-                <strong style={{ fontFamily:'var(--font-display)' }}>Your {cd.subclassLabel}:</strong> {cls.subclass}
-              </div>
-            )}
-
-            {/* Claude subclass feature lookup for non-SRD subclasses */}
+            {/* ── Chosen subclass is in the SRD: show level-by-level progression ── */}
             {cls?.subclass && (() => {
-              const isInSrd = cd.subclasses.some(sc => sc.name === cls.subclass);
+              const srdMatch = cd.subclasses.find((sc: any) => sc.name === cls.subclass);
+              if (!srdMatch) return null;
+              const levels = subclassLevels[srdMatch.index];
+              const loading = subclassLevelsLoading[srdMatch.index];
+              return (
+                <div style={{ marginBottom:12 }}>
+                  <div style={{ marginBottom:8, padding:'6px 10px', background:'rgba(201,162,39,0.08)', border:'1.5px solid var(--gold)', borderRadius:4, fontSize:13 }}>
+                    <strong style={{ fontFamily:'var(--font-display)' }}>Your {cd.subclassLabel}:</strong> {cls.subclass}
+                    {srdMatch.desc && <div style={{ fontSize:11, color:'var(--ink-light)', marginTop:4, lineHeight:1.5 }}>{srdMatch.desc}</div>}
+                  </div>
+                  {loading && <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', padding:'8px 0' }}>Loading feature progression…</div>}
+                  {!loading && levels && (
+                    <div style={{ borderTop:'1px solid var(--border-light)', paddingTop:8 }}>
+                      <div style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:700, color:'var(--border)', textTransform:'uppercase', letterSpacing:1, marginBottom:6 }}>Feature Progression</div>
+                      {levels.map((lv) => {
+                        const key = `sub-${srdMatch.index}-${lv.level}`;
+                        const isPast = lv.level <= (cls?.level ?? 0);
+                        return (
+                          <div key={lv.level} style={{ borderBottom:'0.5px solid var(--parchment-dark)', opacity: isPast ? 1 : 0.55 }}>
+                            <div onClick={() => setExpandedLevel(expandedLevel===key?null:key)}
+                              style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 4px', cursor:'pointer',
+                                background: lv.level === cls?.level ? 'rgba(201,162,39,0.06)' : 'transparent' }}>
+                              <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:700,
+                                width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+                                background: lv.level===cls?.level ? 'var(--gold)' : isPast ? 'var(--parchment-dark)' : 'var(--parchment)',
+                                color: lv.level===cls?.level ? 'var(--ink)' : 'var(--border)',
+                                border:`1.5px solid ${lv.level===cls?.level ? 'var(--gold)' : 'var(--border-light)'}`,
+                              }}>{lv.level}</div>
+                              <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:'2px 6px' }}>
+                                {lv.features.map(f => (
+                                  <span key={f.index} style={{ fontFamily:'var(--font-display)', fontSize:10, fontWeight:600, color: lv.level===cls?.level ? 'var(--ink)' : 'var(--ink-light)' }}>{f.name}</span>
+                                ))}
+                              </div>
+                              <span style={{ fontSize:10, color:'var(--border)', flexShrink:0 }}>{expandedLevel===key?'▲':'▼'}</span>
+                            </div>
+                            {expandedLevel===key && (
+                              <div style={{ padding:'0 8px 10px 42px' }}>
+                                {lv.features.map(f => {
+                                  const alreadyHas = features.some(ef => ef.name.toLowerCase() === f.name.toLowerCase());
+                                  return (
+                                    <div key={f.index} style={{ marginTop:6 }}>
+                                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
+                                        <span style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600 }}>{f.name}</span>
+                                        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                                          {f.desc && <button onClick={() => setExpandedFeature(expandedFeature===f.index?null:f.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedFeature===f.index?'hide':'details'}</button>}
+                                          {isPast && (
+                                            <button onClick={() => handleAddFeature(f, `${cls.name} (${cls.subclass}) ${lv.level}`)} disabled={alreadyHas || addingFeature===f.index}
+                                              style={{ fontSize:10, color: alreadyHas?'var(--border)':'var(--gold)', background:'none', border:`1px solid ${alreadyHas?'var(--border-light)':'var(--gold)'}`, borderRadius:2, padding:'1px 6px', cursor: alreadyHas?'default':'pointer', fontFamily:'var(--font-display)', fontWeight:700, opacity: alreadyHas?0.5:1 }}>
+                                              {alreadyHas ? '✓ Added' : addingFeature===f.index ? '…' : '+ Add'}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {expandedFeature===f.index && (
+                                        <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>
+                                          {f.desc || 'See Player\'s Handbook for full description.'}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* SRD options collapsed for reference */}
+                  {cd.subclasses.length > 1 && (
+                    <details style={{ marginTop:10 }}>
+                      <summary style={{ fontSize:11, color:'var(--border)', cursor:'pointer', fontStyle:'italic', userSelect:'none' }}>
+                        Other SRD {cd.subclassLabel} options
+                      </summary>
+                      <div style={{ marginTop:6 }}>
+                        {cd.subclasses.filter((sc: any) => sc.name !== cls.subclass).map((sc: any) => (
+                          <div key={sc.index} style={{ marginBottom:6, paddingBottom:6, borderBottom:'0.5px solid var(--parchment-dark)' }}>
+                            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                              <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600, color:'var(--border)' }}>{sc.name}</div>
+                              {sc.desc && <button onClick={() => setExpandedSub(expandedSub===sc.index?null:sc.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedSub===sc.index?'hide':'details'}</button>}
+                            </div>
+                            {expandedSub===sc.index && sc.desc && (
+                              <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>{sc.desc}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── Chosen subclass is NOT in SRD: Claude lookup ── */}
+            {cls?.subclass && (() => {
+              const isInSrd = cd.subclasses.some((sc: any) => sc.name === cls.subclass);
               if (isInSrd) return null;
               const key = `${cls.name}-${cls.subclass}`;
               const text = subclaudeText[key];
@@ -433,11 +545,8 @@ export default function ClassGuideTab({
                             🗄 DATABASE{cachedAt ? ` · ${new Date(cachedAt).toLocaleDateString()}` : ''}
                           </span>
                         )}
-                        <button
-                          onClick={() => loadSubclaudeFeatures(cls, true)}
-                          disabled={loading}
-                          style={{ fontSize:9, color:'var(--border)', background:'none', border:'1px solid var(--border-light)', borderRadius:3, padding:'1px 6px', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:700, letterSpacing:0.5 }}
-                        >↺ Regenerate</button>
+                        <button onClick={() => loadSubclaudeFeatures(cls, true)} disabled={loading}
+                          style={{ fontSize:9, color:'var(--border)', background:'none', border:'1px solid var(--border-light)', borderRadius:3, padding:'1px 6px', cursor:'pointer', fontFamily:'var(--font-display)', fontWeight:700, letterSpacing:0.5 }}>↺ Regenerate</button>
                       </div>
                     )}
                   </div>
@@ -456,54 +565,49 @@ export default function ClassGuideTab({
                   {text && !loading && (
                     <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{text}</div>
                   )}
+                  {/* SRD options for reference if any */}
+                  {cd.subclasses.length > 0 && (
+                    <details style={{ marginTop:10 }}>
+                      <summary style={{ fontSize:11, color:'var(--border)', cursor:'pointer', fontStyle:'italic', userSelect:'none' }}>
+                        SRD {cd.subclassLabel} options for reference ({cd.subclasses.map((s: any)=>s.name).join(', ')})
+                      </summary>
+                      <div style={{ marginTop:6 }}>
+                        {cd.subclasses.map((sc: any) => (
+                          <div key={sc.index} style={{ marginBottom:6, paddingBottom:6, borderBottom:'0.5px solid var(--parchment-dark)' }}>
+                            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                              <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600, color:'var(--border)' }}>{sc.name}</div>
+                              {sc.desc && <button onClick={() => setExpandedSub(expandedSub===sc.index?null:sc.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedSub===sc.index?'hide':'details'}</button>}
+                            </div>
+                            {expandedSub===sc.index && sc.desc && (
+                              <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>{sc.desc}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
               );
             })()}
 
-            {(() => {
-              const chosenIsInSrd = cls?.subclass && cd.subclasses.some(sc => sc.name === cls.subclass);
-              const hasCustomChoice = cls?.subclass && !chosenIsInSrd;
-
+            {/* ── No subclass chosen yet: show all SRD options ── */}
+            {!cls?.subclass && (() => {
               if (!cd.subclasses.length) {
                 return (
                   <div style={{ fontStyle:'italic', color:'var(--border)', fontSize:12, lineHeight:1.6 }}>
-                    Subclass options are not included in the SRD. Use the Claude lookup above or the notes section below to record your {cd.subclassLabel} details.
+                    Subclass options are not included in the SRD. Use the notes section below to record your {cd.subclassLabel} details.
                   </div>
                 );
               }
-
-              if (hasCustomChoice) {
-                return (
-                  <details style={{ marginBottom:8 }}>
-                    <summary style={{ fontSize:11, color:'var(--border)', cursor:'pointer', fontStyle:'italic', userSelect:'none' }}>
-                      SRD {cd.subclassLabel} options for reference ({cd.subclasses.map(s=>s.name).join(', ')})
-                    </summary>
-                    <div style={{ marginTop:6 }}>
-                      {cd.subclasses.map((sc) => (
-                        <div key={sc.index} style={{ marginBottom:6, paddingBottom:6, borderBottom:'0.5px solid var(--parchment-dark)' }}>
-                          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                            <div style={{ fontFamily:'var(--font-display)', fontSize:12, fontWeight:600, color:'var(--border)' }}>{sc.name}</div>
-                            {sc.desc && <button onClick={() => setExpandedSub(expandedSub===sc.index?null:sc.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedSub===sc.index?'hide':'details'}</button>}
-                          </div>
-                          {expandedSub===sc.index && sc.desc && (
-                            <div style={{ fontSize:12, color:'var(--ink-light)', lineHeight:1.6, marginTop:4, padding:8, background:'var(--parchment)', border:'1px solid var(--border-light)', borderRadius:3, whiteSpace:'pre-wrap' }}>{sc.desc}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                );
-              }
-
               return (
                 <>
-                  {cd.subclasses.map((sc) => (
+                  <div style={{ fontSize:12, color:'var(--border)', fontStyle:'italic', marginBottom:10 }}>
+                    No subclass chosen yet. Your {cd.subclassLabel} unlocks at level {cd.subclassLevel}.
+                  </div>
+                  {cd.subclasses.map((sc: any) => (
                     <div key={sc.index} style={{ marginBottom:8, borderBottom:'0.5px solid var(--parchment-dark)', paddingBottom:8 }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                        <div style={{ fontFamily:'var(--font-display)', fontSize:13, fontWeight:600 }}>
-                          {sc.name}
-                          {cls?.subclass===sc.name && <span style={{ marginLeft:8, fontSize:9, background:'var(--gold)', color:'var(--ink)', padding:'1px 5px', borderRadius:2, fontFamily:'var(--font-display)', fontWeight:700 }}>YOUR CHOICE</span>}
-                        </div>
+                        <div style={{ fontFamily:'var(--font-display)', fontSize:13, fontWeight:600 }}>{sc.name}</div>
                         {sc.desc && <button onClick={() => setExpandedSub(expandedSub===sc.index?null:sc.index)} style={{ fontSize:11, color:'var(--gold)', background:'none', border:'none', cursor:'pointer', fontStyle:'italic' }}>{expandedSub===sc.index?'hide':'details'}</button>}
                       </div>
                       {expandedSub===sc.index && sc.desc && (

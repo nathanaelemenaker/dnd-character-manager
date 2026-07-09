@@ -48,11 +48,38 @@ export async function GET(req: NextRequest) {
   const rawName = (sp.get('name') ?? '').trim();
   const levelParam = sp.get('level');
   const subclassesOnly = sp.get('subclasses') === 'true';
+  const subclassIndex = sp.get('subclass') ?? '';
 
-  if (!rawName) return NextResponse.json({ error: 'name_required' }, { status: 400 });
+  if (!rawName && !subclassIndex) return NextResponse.json({ error: 'name_required' }, { status: 400 });
   const idx = classIndex(rawName);
 
   try {
+    // ── Subclass level progression ────────────────────────────────────────
+    if (subclassIndex) {
+      const levelsData: any[] = await fetchJSON(`${BASE}/subclasses/${subclassIndex}/levels`);
+      const featureRefs = levelsData.flatMap((l) => l.features ?? []);
+      const featureResults = await Promise.allSettled(
+        featureRefs.map((f: { url: string }) => fetchJSON(`https://www.dnd5eapi.co${f.url}`))
+      );
+      const featureMap: Record<string, string> = {};
+      featureResults
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .forEach((r) => {
+          featureMap[r.value.index] = Array.isArray(r.value.desc)
+            ? r.value.desc.join('\n\n')
+            : (r.value.desc ?? '');
+        });
+      const levels = levelsData.map((l) => ({
+        level: l.level,
+        features: (l.features ?? []).map((f: any) => ({
+          name:  f.name,
+          index: f.index,
+          desc:  featureMap[f.index] ?? '',
+        })),
+      }));
+      return NextResponse.json({ levels });
+    }
+
     // ── Subclass list ─────────────────────────────────────────────────────
     if (subclassesOnly) {
       const classData = await fetchJSON(`${BASE}/classes/${idx}`);
