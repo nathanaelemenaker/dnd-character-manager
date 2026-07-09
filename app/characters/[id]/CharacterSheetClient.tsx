@@ -3089,6 +3089,7 @@ function FeaturesTab({ state, addFeature, removeFeature, updateFeature }: any) {
   const [claudeError, setClaudeError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Feature | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function lookupFeat() {
     if (!searchQ.trim()) return;
@@ -3156,17 +3157,22 @@ function FeaturesTab({ state, addFeature, removeFeature, updateFeature }: any) {
               </div>
             ) : (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => { setEditingId(f.id ?? null); setEditDraft({ ...f }); }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600 }}>{f.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === f.id ? null : f.id ?? null)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {f.name}
+                      {f.desc && <span style={{ fontSize: 9, color: 'var(--border)' }}>{expandedId === f.id ? '▲' : '▼'}</span>}
+                    </div>
                     <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>{f.source}</div>
                   </div>
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                     <button onClick={() => { setEditingId(f.id ?? null); setEditDraft({ ...f }); }} style={{ fontSize: 10, background: 'none', border: '1px solid var(--border-light)', color: 'var(--border)', cursor: 'pointer', borderRadius: 2, padding: '1px 6px' }} title="Edit feature">✎</button>
                     <button onClick={() => f.id && removeFeature(f.id)} style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--border)', cursor: 'pointer' }}>✕</button>
                   </div>
                 </div>
-                {f.desc && <div style={{ fontSize: 12, color: 'var(--ink-light)', marginTop: 3, lineHeight: 1.4 }}>{f.desc}</div>}
+                {f.desc && expandedId === f.id && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-light)', marginTop: 6, lineHeight: 1.5, padding: '6px 8px', background: 'var(--parchment)', border: '1px solid var(--border-light)', borderRadius: 3, whiteSpace: 'pre-wrap' }}>{f.desc}</div>
+                )}
               </>
             )}
           </div>
