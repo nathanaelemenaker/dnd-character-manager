@@ -343,5 +343,18 @@ model SessionLog {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  versions         SessionLogVersion[]
+
   @@unique([campaignId, sessionNumber])
+}
+
+model SessionLogVersion {
+  id             String     @id @default(cuid())
+  sessionLogId   String
+  sessionLog     SessionLog @relation(fields: [sessionLogId], references: [id], onDelete: Cascade)
+  generatedOutput Json
+  versionLabel   String
+  createdAt      DateTime   @default(now())
+
+  @@index([sessionLogId, createdAt])
 }

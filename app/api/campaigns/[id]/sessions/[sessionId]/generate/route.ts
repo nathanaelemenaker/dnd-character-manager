@@ -128,12 +128,57 @@ function buildUserMessage(
   return parts.join('\n');
 }
 
+function buildPatchUserMessage(
+  sessionLog: { sessionNumber: number; corrections: string | null },
+  existingOutput: unknown
+): string {
+  return `You are applying targeted corrections to an existing session chronicle. Your job is to make the minimum necessary changes — fix only what the corrections specify, and preserve everything else EXACTLY as written, word for word.
+
+Existing chronicle (do not rewrite this — only change what is explicitly corrected):
+<existing_output>
+${JSON.stringify(existingOutput, null, 2)}
+</existing_output>
+
+DM Corrections to apply:
+${sessionLog.corrections?.trim() ?? '(none)'}
+
+Instructions:
+- Return the full JSON object with corrections applied
+- Do NOT rephrase, restructure, or improve any text that is not mentioned in the corrections
+- Do NOT change the writing style, emphasis, or narrative arc
+- Only alter the specific facts called out in the corrections (names, spells, items, who did what)
+- If a correction affects multiple fields (e.g., a wrong name appears in summary, epicMoment, and partyStatus), fix it in all places
+- Return ONLY valid JSON — no markdown, no code fences, no preamble`;
+}
+
+async function saveCurrentOutputAsVersion(
+  sessionLogId: string,
+  existingOutput: unknown,
+  label: string
+): Promise<void> {
+  await prisma.sessionLogVersion.create({
+    data: {
+      sessionLogId,
+      generatedOutput: existingOutput as any,
+      versionLabel: label,
+    },
+  });
+}
+
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string; sessionId: string } }
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  let mode: 'full' | 'patch' = 'full';
+  try {
+    const body = await req.json().catch(() => ({}));
+    if (body?.mode === 'patch') mode = 'patch';
+  } catch {
+    // default to full
+  }
 
   try {
     const isAdmin = hasRole(session.role, 'ADMIN');
@@ -147,6 +192,52 @@ export async function POST(
     });
     if (!sessionLog) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
+    if (mode === 'patch') {
+      if (!sessionLog.generatedOutput) {
+        return NextResponse.json({ error: 'no_existing_output' }, { status: 400 });
+      }
+      if (!sessionLog.corrections?.trim()) {
+        return NextResponse.json({ error: 'no_corrections' }, { status: 400 });
+      }
+
+      const userMessage = buildPatchUserMessage(sessionLog, sessionLog.generatedOutput);
+
+      const message = await client.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 8192,
+        messages: [{ role: 'user', content: userMessage }],
+      });
+
+      const textBlock = message.content.find(b => b.type === 'text');
+      if (!textBlock || textBlock.type !== 'text') {
+        return NextResponse.json({ error: 'no_text_response' }, { status: 502 });
+      }
+
+      let patchedOutput: unknown;
+      try {
+        patchedOutput = JSON.parse(textBlock.text);
+      } catch {
+        console.error('Claude returned non-JSON (patch):', textBlock.text.slice(0, 200));
+        return NextResponse.json({ error: 'invalid_json_from_claude' }, { status: 502 });
+      }
+
+      // Save current output as a version before overwriting
+      const versionCount = await prisma.sessionLogVersion.count({ where: { sessionLogId: params.sessionId } });
+      await saveCurrentOutputAsVersion(
+        params.sessionId,
+        sessionLog.generatedOutput,
+        `v${versionCount + 1} — before corrections patch`
+      );
+
+      const updated = await prisma.sessionLog.update({
+        where: { id: params.sessionId },
+        data: { generatedOutput: patchedOutput as any },
+      });
+
+      return NextResponse.json({ session: updated, generatedOutput: patchedOutput });
+    }
+
+    // Full regeneration
     const campaign = await prisma.campaign.findUnique({
       where: { id: params.id },
       select: {
@@ -169,7 +260,6 @@ export async function POST(
     });
     if (!campaign) return NextResponse.json({ error: 'campaign_not_found' }, { status: 404 });
 
-    // Pull the 3 most recent prior sessions that have generated output
     const previousSessions = await prisma.sessionLog.findMany({
       where: {
         campaignId: params.id,
@@ -180,7 +270,6 @@ export async function POST(
       take: 3,
       select: { sessionNumber: true, title: true, generatedOutput: true },
     });
-    // Reverse so they're oldest → newest for the prompt
     previousSessions.reverse();
 
     const systemPrompt = buildCampaignSystemPrompt(campaign);
@@ -214,6 +303,17 @@ export async function POST(
     } catch {
       console.error('Claude returned non-JSON:', textBlock.text.slice(0, 200));
       return NextResponse.json({ error: 'invalid_json_from_claude' }, { status: 502 });
+    }
+
+    // Save current output as a version before overwriting
+    if (sessionLog.generatedOutput) {
+      const versionCount = await prisma.sessionLogVersion.count({ where: { sessionLogId: params.sessionId } });
+      const hasCorrections = sessionLog.corrections?.trim();
+      await saveCurrentOutputAsVersion(
+        params.sessionId,
+        sessionLog.generatedOutput,
+        `v${versionCount + 1}${hasCorrections ? ' — before full regeneration with corrections' : ' — before full regeneration'}`
+      );
     }
 
     const updated = await prisma.sessionLog.update({

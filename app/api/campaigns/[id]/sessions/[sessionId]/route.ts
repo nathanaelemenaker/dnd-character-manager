@@ -52,6 +52,9 @@ export async function PATCH(
     if (typeof body.corrections === 'string') data.corrections = body.corrections || null;
     if (Array.isArray(body.attendees)) data.attendees = body.attendees;
     if (typeof body.shareToken === 'string') data.shareToken = body.shareToken || null;
+    if (body.generatedOutput !== undefined && body.generatedOutput !== null && typeof body.generatedOutput === 'object') {
+      data.generatedOutput = body.generatedOutput;
+    }
 
     // When speakerMap is updated, re-render rawTranscript from stored segments
     if (body.speakerMap !== undefined && typeof body.speakerMap === 'object') {

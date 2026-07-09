@@ -54,6 +54,13 @@ interface SessionLog {
   updatedAt: string;
 }
 
+interface SessionVersion {
+  id: string;
+  versionLabel: string;
+  createdAt: string;
+  generatedOutput: GeneratedOutput;
+}
+
 interface CampaignMember {
   id: string;
   role: string;
@@ -70,6 +77,258 @@ const OUTCOME_STYLES: Record<string, { bg: string; color: string; label: string 
   avoided: { bg: 'rgba(102,102,102,0.1)', color: '#555', label: 'Avoided' },
 };
 
+// ── Inline editable text field ──────────────────────────────────────────────
+function InlineEdit({
+  value,
+  onSave,
+  multiline = true,
+  style,
+}: {
+  value: string;
+  onSave: (next: string) => Promise<void>;
+  multiline?: boolean;
+  style?: React.CSSProperties;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <span style={{ position: 'relative', display: 'inline' }}>
+        <span style={style}>{value}</span>
+        <button
+          onClick={() => { setDraft(value); setEditing(true); }}
+          title="Edit"
+          style={{
+            marginLeft: 6,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 11,
+            color: 'var(--border)',
+            padding: '0 2px',
+            verticalAlign: 'middle',
+            opacity: 0.6,
+          }}
+        >
+          ✏
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span style={{ display: 'block' }}>
+      {multiline ? (
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          style={{
+            width: '100%',
+            border: '1.5px solid var(--gold)',
+            borderRadius: 4,
+            padding: '8px 10px',
+            fontSize: 'inherit',
+            fontFamily: 'inherit',
+            lineHeight: 'inherit',
+            resize: 'vertical',
+            minHeight: 80,
+            boxSizing: 'border-box',
+            background: 'var(--parchment)',
+            color: 'var(--ink)',
+          }}
+        />
+      ) : (
+        <input
+          autoFocus
+          type="text"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          style={{
+            width: '100%',
+            border: '1.5px solid var(--gold)',
+            borderRadius: 4,
+            padding: '6px 10px',
+            fontSize: 'inherit',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+            background: 'var(--parchment)',
+            color: 'var(--ink)',
+          }}
+        />
+      )}
+      <span style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button className="ink-btn" style={{ fontSize: 11 }} disabled={saving} onClick={save}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button className="ink-btn ghost" style={{ fontSize: 11 }} onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+      </span>
+    </span>
+  );
+}
+
+// ── Version history panel ────────────────────────────────────────────────────
+function VersionHistory({
+  campaignId,
+  sessionId,
+  onRestore,
+}: {
+  campaignId: string;
+  sessionId: string;
+  onRestore: (output: GeneratedOutput) => void;
+}) {
+  const [versions, setVersions] = useState<SessionVersion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/sessions/${sessionId}/versions`);
+      if (res.ok) {
+        const data = await res.json();
+        setVersions(data.versions ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [campaignId, sessionId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleRestore(version: SessionVersion) {
+    if (!confirm(`Restore "${version.versionLabel}"? Your current output will be saved as a new version first.`)) return;
+    setRestoring(version.id);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/sessions/${sessionId}/versions/${version.id}`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onRestore(data.generatedOutput);
+        await load();
+      }
+    } finally {
+      setRestoring(null);
+    }
+  }
+
+  async function handleDelete(versionId: string, label: string) {
+    if (!confirm(`Delete version "${label}"? This cannot be undone.`)) return;
+    setDeleting(versionId);
+    try {
+      await fetch(`/api/campaigns/${campaignId}/sessions/${sessionId}/versions/${versionId}`, {
+        method: 'DELETE',
+      });
+      setVersions(v => v.filter(x => x.id !== versionId));
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  if (loading) {
+    return <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', padding: '8px 0' }}>Loading versions…</div>;
+  }
+
+  if (versions.length === 0) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--border)', fontStyle: 'italic', padding: '12px 0' }}>
+        No previous versions yet. Versions are saved automatically before each regeneration or patch.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {versions.map(v => {
+        const isExpanded = expanded === v.id;
+        const prevOutput = v.generatedOutput as GeneratedOutput;
+        return (
+          <div
+            key={v.id}
+            style={{
+              border: '1px solid var(--border-light)',
+              borderRadius: 5,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '9px 12px',
+                background: isExpanded ? 'rgba(201,162,39,0.06)' : 'transparent',
+                cursor: 'pointer',
+              }}
+              onClick={() => setExpanded(isExpanded ? null : v.id)}
+            >
+              <span style={{ fontSize: 11, color: 'var(--gold)', fontFamily: 'var(--font-display)', fontWeight: 700, flexShrink: 0 }}>
+                {isExpanded ? '▼' : '▶'}
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--ink)', flex: 1 }}>{v.versionLabel}</span>
+              <span style={{ fontSize: 11, color: 'var(--border)', flexShrink: 0 }}>
+                {new Date(v.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </span>
+              <button
+                className="ink-btn"
+                style={{ fontSize: 10, padding: '2px 8px', flexShrink: 0 }}
+                disabled={restoring === v.id}
+                onClick={e => { e.stopPropagation(); handleRestore(v); }}
+              >
+                {restoring === v.id ? 'Restoring…' : '↩ Restore'}
+              </button>
+              <button
+                className="ink-btn danger"
+                style={{ fontSize: 10, padding: '2px 8px', flexShrink: 0 }}
+                disabled={deleting === v.id}
+                onClick={e => { e.stopPropagation(); handleDelete(v.id, v.versionLabel); }}
+              >
+                {deleting === v.id ? '…' : '✕'}
+              </button>
+            </div>
+
+            {isExpanded && (
+              <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-light)', background: 'var(--parchment)' }}>
+                {prevOutput.sessionTitle && (
+                  <div style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--gold)', marginBottom: 10, opacity: 0.9 }}>
+                    "{prevOutput.sessionTitle}"
+                  </div>
+                )}
+                <div style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--ink-light)', whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto' }}>
+                  {prevOutput.summary}
+                </div>
+                {prevOutput.epicMoment && (
+                  <div style={{ marginTop: 10, fontSize: 12, fontStyle: 'italic', color: 'var(--ink-light)', lineHeight: 1.6, borderLeft: '2px solid var(--gold)', paddingLeft: 10 }}>
+                    {prevOutput.epicMoment}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 export default function SessionLogPage() {
   const params = useParams<{ id: string; sessionId: string }>();
   const router = useRouter();
@@ -95,6 +354,8 @@ export default function SessionLogPage() {
   const [draftCorrections, setDraftCorrections] = useState('');
   const [savingCorrections, setSavingCorrections] = useState(false);
   const [attendees, setAttendees] = useState<string[]>([]);
+  const [showVersions, setShowVersions] = useState(false);
+  const [versionKey, setVersionKey] = useState(0); // bump to reload version list
   const audioRef = useRef<HTMLAudioElement>(null);
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
@@ -126,6 +387,53 @@ export default function SessionLogPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Patch the in-memory generatedOutput and persist to DB
+  async function patchOutput(patch: Partial<GeneratedOutput>) {
+    if (!log?.generatedOutput) return;
+    const next = { ...log.generatedOutput, ...patch };
+    const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ generatedOutput: next }),
+    });
+    if (!res.ok) throw new Error('Save failed');
+    setLog(prev => prev ? { ...prev, generatedOutput: next } : prev);
+  }
+
+  async function patchPartyMember(index: number, memberPatch: Partial<PartyMemberStatus>) {
+    if (!log?.generatedOutput) return;
+    const nextParty = log.generatedOutput.partyStatus.map((m, i) =>
+      i === index ? { ...m, ...memberPatch } : m
+    );
+    await patchOutput({ partyStatus: nextParty });
+  }
+
+  async function patchCombatEncounter(index: number, encPatch: Partial<CombatEncounter>) {
+    if (!log?.generatedOutput) return;
+    const nextLog = log.generatedOutput.combatLog.map((e, i) =>
+      i === index ? { ...e, ...encPatch } : e
+    );
+    await patchOutput({ combatLog: nextLog });
+  }
+
+  async function patchCombatHighlight(encIndex: number, hlIndex: number, value: string) {
+    if (!log?.generatedOutput) return;
+    const nextLog = log.generatedOutput.combatLog.map((e, i) => {
+      if (i !== encIndex) return e;
+      const nextHighlights = e.highlights.map((h, j) => j === hlIndex ? value : h);
+      return { ...e, highlights: nextHighlights };
+    });
+    await patchOutput({ combatLog: nextLog });
+  }
+
+  async function patchOpenThread(index: number, value: string) {
+    if (!log?.generatedOutput) return;
+    const nextThreads = (log.generatedOutput.openThreads ?? []).map((t, i) =>
+      i === index ? value : t
+    );
+    await patchOutput({ openThreads: nextThreads });
+  }
+
   async function handleRetranscribe() {
     setRetranscribing(true);
     setRetranscribeError('');
@@ -143,23 +451,33 @@ export default function SessionLogPage() {
     }
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(mode: 'full' | 'patch' = 'full') {
     const hasCorrections = log?.corrections?.trim();
-    const confirmMsg = log?.generatedOutput
-      ? (hasCorrections ? 'Re-generate with DM corrections applied? This will overwrite the current output.' : 'Re-generate the session log? This will overwrite the current output.')
-      : 'Generate the session log now?';
+
+    let confirmMsg: string;
+    if (mode === 'patch') {
+      confirmMsg = 'Apply corrections to the existing summary? Only the facts you noted will change — everything else stays as-is. The current version will be saved first.';
+    } else {
+      confirmMsg = log?.generatedOutput
+        ? (hasCorrections ? 'Re-generate the full summary from scratch with DM corrections? This will create a completely new version. The current one will be saved first.' : 'Re-generate the full summary from scratch? The current one will be saved first.')
+        : 'Generate the session log now?';
+    }
     if (!confirm(confirmMsg)) return;
+
     setGenerating(true);
     setGenError('');
     try {
       const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}/generate`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error ?? 'Generation failed');
       }
       await load();
+      setVersionKey(k => k + 1);
       setActiveTab('summary');
     } catch (e: any) {
       setGenError(e.message);
@@ -313,17 +631,29 @@ export default function SessionLogPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {/* Apply Corrections button — only when output exists and corrections are saved */}
+          {output && hasCorrections && (
+            <button
+              className="ink-btn"
+              onClick={() => handleGenerate('patch')}
+              disabled={generating || isTranscribing}
+              style={{ fontSize: 12, background: 'rgba(201,162,39,0.15)', borderColor: 'var(--gold)' }}
+              title="Apply saved corrections with minimal changes — keeps your existing summary intact"
+            >
+              {generating ? '⏳ Applying…' : '✦ Apply Corrections'}
+            </button>
+          )}
           <button
             className="ink-btn"
-            onClick={handleGenerate}
+            onClick={() => handleGenerate('full')}
             disabled={generating || isTranscribing || (!hasTranscript && !output)}
-            title={!hasTranscript && !output ? 'Add a transcript first' : undefined}
+            title={!hasTranscript && !output ? 'Add a transcript first' : output ? 'Full regeneration from scratch — creates a new version' : undefined}
             style={{ fontSize: 12, opacity: (!hasTranscript && !output) ? 0.5 : 1 }}
           >
             {generating
               ? '⏳ Generating…'
               : output
-                ? (hasCorrections ? '↺ Regenerate with Corrections' : '↺ Regenerate')
+                ? '↺ Regenerate'
                 : '✦ Generate Log'}
           </button>
           {output && (
@@ -349,7 +679,15 @@ export default function SessionLogPage() {
       {/* Session title from Claude */}
       {output?.sessionTitle && (
         <div style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--gold)', marginBottom: 20, marginTop: 6, opacity: 0.9 }}>
-          "{output.sessionTitle}"
+          <InlineEdit
+            value={`"${output.sessionTitle}"`}
+            multiline={false}
+            onSave={async val => {
+              const cleaned = val.replace(/^"|"$/g, '').trim();
+              await patchOutput({ sessionTitle: cleaned });
+            }}
+            style={{ fontStyle: 'italic', color: 'var(--gold)' }}
+          />
         </div>
       )}
 
@@ -463,7 +801,7 @@ export default function SessionLogPage() {
               : 'Record your session audio above, or paste a transcript using the toggle below.'}
           </div>
           {hasTranscript && (
-            <button className="ink-btn" onClick={handleGenerate}>
+            <button className="ink-btn" onClick={() => handleGenerate('full')}>
               ✦ Generate Log
             </button>
           )}
@@ -555,10 +893,13 @@ export default function SessionLogPage() {
                     fontSize: 16,
                     lineHeight: 1.8,
                     color: 'var(--ink)',
-                    whiteSpace: 'pre-wrap',
                   }}
                 >
-                  {output.summary}
+                  <InlineEdit
+                    value={output.summary}
+                    onSave={val => patchOutput({ summary: val })}
+                    style={{ whiteSpace: 'pre-wrap' }}
+                  />
                 </div>
               </div>
 
@@ -576,7 +917,10 @@ export default function SessionLogPage() {
                     ⚔ Epic Moment
                   </div>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, lineHeight: 1.75, color: 'var(--ink)', fontStyle: 'italic' }}>
-                    {output.epicMoment}
+                    <InlineEdit
+                      value={output.epicMoment}
+                      onSave={val => patchOutput({ epicMoment: val })}
+                    />
                   </div>
                 </div>
               )}
@@ -594,7 +938,10 @@ export default function SessionLogPage() {
                     Quote of the Session
                   </div>
                   <div style={{ fontFamily: 'var(--font-body)', fontSize: 14, lineHeight: 1.7, color: 'var(--ink)', fontStyle: 'italic' }}>
-                    {output.quoteOfTheSession}
+                    <InlineEdit
+                      value={output.quoteOfTheSession}
+                      onSave={val => patchOutput({ quoteOfTheSession: val })}
+                    />
                   </div>
                 </div>
               )}
@@ -608,7 +955,10 @@ export default function SessionLogPage() {
                   <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {output.openThreads.map((thread, i) => (
                       <li key={i} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--ink-light)' }}>
-                        {thread}
+                        <InlineEdit
+                          value={thread}
+                          onSave={val => patchOpenThread(i, val)}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -645,7 +995,12 @@ export default function SessionLogPage() {
                         }}
                       >
                         <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--gold-light)', fontWeight: 700 }}>
-                          {enc.title}
+                          <InlineEdit
+                            value={enc.title}
+                            multiline={false}
+                            onSave={val => patchCombatEncounter(i, { title: val })}
+                            style={{ color: 'var(--gold-light)' }}
+                          />
                         </span>
                         <span
                           style={{
@@ -666,7 +1021,11 @@ export default function SessionLogPage() {
                       <div style={{ padding: '14px 16px' }}>
                         {enc.location && (
                           <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginBottom: 10 }}>
-                            📍 {enc.location}
+                            📍 <InlineEdit
+                              value={enc.location}
+                              multiline={false}
+                              onSave={val => patchCombatEncounter(i, { location: val })}
+                            />
                           </div>
                         )}
                         {enc.enemies?.length > 0 && (
@@ -696,7 +1055,14 @@ export default function SessionLogPage() {
                           <div style={{ marginBottom: enc.casualties?.length ? 10 : 0 }}>
                             <div className="field-label">Highlights</div>
                             <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--ink-light)' }}>
-                              {enc.highlights.map((h, j) => <li key={j}>{h}</li>)}
+                              {enc.highlights.map((h, j) => (
+                                <li key={j}>
+                                  <InlineEdit
+                                    value={h}
+                                    onSave={val => patchCombatHighlight(i, j, val)}
+                                  />
+                                </li>
+                              ))}
                             </ul>
                           </div>
                         )}
@@ -754,13 +1120,23 @@ export default function SessionLogPage() {
                       {m.hpNotes && (
                         <div>
                           <div className="field-label">HP / Damage</div>
-                          <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5 }}>{m.hpNotes}</div>
+                          <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5 }}>
+                            <InlineEdit
+                              value={m.hpNotes}
+                              onSave={val => patchPartyMember(i, { hpNotes: val })}
+                            />
+                          </div>
                         </div>
                       )}
                       {m.notableActions && (
                         <div>
                           <div className="field-label">Notable Actions</div>
-                          <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5 }}>{m.notableActions}</div>
+                          <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5 }}>
+                            <InlineEdit
+                              value={m.notableActions}
+                              onSave={val => patchPartyMember(i, { notableActions: val })}
+                            />
+                          </div>
                         </div>
                       )}
                       {m.itemsAcquired?.length > 0 && (
@@ -789,7 +1165,12 @@ export default function SessionLogPage() {
                       {m.xpOrMilestones && (
                         <div>
                           <div className="field-label">XP / Milestones</div>
-                          <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5 }}>{m.xpOrMilestones}</div>
+                          <div style={{ fontSize: 12, color: 'var(--ink-light)', lineHeight: 1.5 }}>
+                            <InlineEdit
+                              value={m.xpOrMilestones}
+                              onSave={val => patchPartyMember(i, { xpOrMilestones: val })}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -827,7 +1208,7 @@ export default function SessionLogPage() {
           {showCorrections && (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 12, color: 'var(--border)', marginBottom: 10, fontStyle: 'italic' }}>
-                Note corrections for the next regeneration — e.g. "Hypnotic Pattern was cast by Alott, not Rhonwen."
+                Note corrections here, then use <strong>✦ Apply Corrections</strong> to patch only those facts — or <strong>↺ Regenerate</strong> for a full rewrite from the transcript.
               </div>
               {!editingCorrections ? (
                 <>
@@ -904,6 +1285,37 @@ export default function SessionLogPage() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Version History */}
+      {output && (
+        <div style={{ marginTop: 16, borderTop: '1px solid var(--border-light)', paddingTop: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              className="ink-btn ghost"
+              style={{ fontSize: 11 }}
+              onClick={() => setShowVersions(v => !v)}
+            >
+              {showVersions ? '▲ Hide Version History' : '▼ Version History'}
+            </button>
+          </div>
+          {showVersions && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, color: 'var(--border)', marginBottom: 12, fontStyle: 'italic' }}>
+                Previous summaries are saved automatically before every regeneration or correction patch. Expand one to preview it, then restore if you prefer it.
+              </div>
+              <VersionHistory
+                key={versionKey}
+                campaignId={params.id}
+                sessionId={params.sessionId}
+                onRestore={restoredOutput => {
+                  setLog(prev => prev ? { ...prev, generatedOutput: restoredOutput } : prev);
+                  setVersionKey(k => k + 1);
+                }}
+              />
             </div>
           )}
         </div>
