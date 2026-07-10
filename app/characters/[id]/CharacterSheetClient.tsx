@@ -575,8 +575,13 @@ export default function CharacterSheetClient({
 
   async function deleteCharacter() {
     if (!confirm('Delete this character? This cannot be undone.')) return;
-    await api('', 'DELETE');
-    router.push('/characters');
+    const res = await api('', 'DELETE');
+    if (res.status === 204 || res.ok) {
+      router.push('/characters');
+    } else {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || `Delete failed (${res.status})`);
+    }
   }
 
   // ── Level-up apply ───────────────────────────────────────────────────────
