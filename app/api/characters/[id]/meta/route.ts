@@ -16,6 +16,7 @@ const META_SELECT = {
   ac: true, speed: true,
   hpCurrent: true, hpMax: true, hpTemp: true,
   inspiration: true, currency: true, bio: true, deathSaves: true,
+  conditions: true,
   updatedAt: true,
 } as const;
 

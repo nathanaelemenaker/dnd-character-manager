@@ -24,7 +24,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
             character: {
               select: {
                 id: true, name: true, level: true, portrait: true,
+                hpCurrent: true, hpMax: true, hpTemp: true,
+                conditions: true, updatedAt: true,
                 classes: { select: { classKey: true, level: true } },
+                spellsKnown: {
+                  where: { prepared: true },
+                  select: { id: true, spellName: true, srdData: true },
+                },
               },
             },
           },

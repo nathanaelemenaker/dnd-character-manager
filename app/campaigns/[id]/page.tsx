@@ -4,6 +4,19 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+const STANDARD_CONDITIONS = [
+  'Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened', 'Grappled',
+  'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified', 'Poisoned',
+  'Prone', 'Restrained', 'Stunned', 'Unconscious',
+];
+
+interface PartyCharState {
+  hpCurrent: number;
+  hpMax: number;
+  hpTemp: number;
+  conditions: string[];
+}
+
 interface CampaignMember {
   id: string;
   role: 'DM' | 'PLAYER';
@@ -16,7 +29,13 @@ interface CampaignMember {
     name: string;
     level: number;
     portrait: string | null;
+    hpCurrent: number;
+    hpMax: number;
+    hpTemp: number;
+    conditions: string[];
+    updatedAt: string;
     classes: Array<{ classKey: string; level: number }>;
+    spellsKnown: Array<{ id: string; spellName: string; srdData: unknown }>;
   } | null;
 }
 
@@ -80,6 +99,16 @@ export default function CampaignDetailPage() {
   const [myCharacters, setMyCharacters] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedCharId, setSelectedCharId] = useState('');
 
+  // ── Party / DM state ─────────────────────────────────────────────────────
+  const [partyState, setPartyState] = useState<Record<string, PartyCharState>>({});
+  const [dmInputs, setDmInputs] = useState<Record<string, { value: string; mode: 'damage' | 'heal' }>>({});
+  const [applying, setApplying] = useState<Set<string>>(new Set());
+  const [concCheck, setConcCheck] = useState<{
+    characterName: string;
+    dc: number;
+    spellNames: string[];
+  } | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -99,6 +128,55 @@ export default function CampaignDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Initialize partyState when campaign first loads
+  useEffect(() => {
+    if (!campaign) return;
+    setPartyState(prev => {
+      const next: Record<string, PartyCharState> = { ...prev };
+      for (const m of campaign.members) {
+        if (m.character && !next[m.character.id]) {
+          next[m.character.id] = {
+            hpCurrent: m.character.hpCurrent,
+            hpMax: m.character.hpMax,
+            hpTemp: m.character.hpTemp,
+            conditions: (m.character.conditions as string[]) ?? [],
+          };
+        }
+      }
+      return next;
+    });
+  }, [campaign]);
+
+  // Silent refresh for party polling (no loading flash)
+  const silentRefresh = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setPartyState(prev => {
+        const next: Record<string, PartyCharState> = { ...prev };
+        for (const m of (data.campaign?.members ?? [])) {
+          if (m.character) {
+            next[m.character.id] = {
+              hpCurrent: m.character.hpCurrent,
+              hpMax: m.character.hpMax,
+              hpTemp: m.character.hpTemp,
+              conditions: (m.character.conditions as string[]) ?? [],
+            };
+          }
+        }
+        return next;
+      });
+    } catch { /* silently ignore */ }
+  }, [params.id]);
+
+  // Poll party HP/conditions every 5 seconds when on the Party tab
+  useEffect(() => {
+    if (activeTab !== 'party') return;
+    const interval = setInterval(silentRefresh, 5000);
+    return () => clearInterval(interval);
+  }, [activeTab, silentRefresh]);
+
   useEffect(() => {
     fetch('/api/characters')
       .then(r => r.json())
@@ -108,6 +186,77 @@ export default function CampaignDetailPage() {
 
   const isDM = membership?.role === 'DM';
   const canManage = isDM || isAdmin;
+
+  // ── DM action handlers ────────────────────────────────────────────────────
+  async function handleDmApply(characterId: string, characterName: string) {
+    const input = dmInputs[characterId] ?? { value: '', mode: 'damage' };
+    const amount = parseInt(input.value, 10);
+    if (isNaN(amount) || amount <= 0) return;
+    const hpDelta = input.mode === 'damage' ? -amount : amount;
+
+    // Optimistic HP update
+    setPartyState(prev => {
+      const char = prev[characterId];
+      if (!char) return prev;
+      let { hpCurrent, hpMax, hpTemp } = char;
+      if (hpDelta < 0) {
+        const dmg = Math.abs(hpDelta);
+        if (hpTemp > 0) {
+          const absorbed = Math.min(hpTemp, dmg);
+          hpTemp -= absorbed;
+          hpCurrent = Math.max(0, hpCurrent - (dmg - absorbed));
+        } else {
+          hpCurrent = Math.max(0, hpCurrent - dmg);
+        }
+      } else {
+        hpCurrent = Math.min(hpMax, hpCurrent + hpDelta);
+      }
+      return { ...prev, [characterId]: { ...char, hpCurrent, hpTemp } };
+    });
+
+    setApplying(prev => new Set([...prev, characterId]));
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/dm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characterId, hpDelta }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPartyState(prev => ({
+          ...prev,
+          [characterId]: {
+            hpCurrent: data.hpCurrent,
+            hpMax: data.hpMax,
+            hpTemp: data.hpTemp,
+            conditions: (data.conditions as string[]) ?? prev[characterId]?.conditions ?? [],
+          },
+        }));
+        if (hpDelta < 0 && data.concentrating) {
+          const dc = Math.max(10, Math.floor(amount / 2));
+          setConcCheck({ characterName, dc, spellNames: data.concentrationSpells.map((s: { name: string }) => s.name) });
+        }
+      }
+    } catch {
+      silentRefresh();
+    } finally {
+      setApplying(prev => { const n = new Set(prev); n.delete(characterId); return n; });
+      setDmInputs(prev => ({ ...prev, [characterId]: { value: '', mode: prev[characterId]?.mode ?? 'damage' } }));
+    }
+  }
+
+  async function handleToggleCondition(characterId: string, condition: string) {
+    const current = partyState[characterId]?.conditions ?? [];
+    const has = current.includes(condition);
+    const next = has ? current.filter(c => c !== condition) : [...current, condition];
+    setPartyState(prev => ({ ...prev, [characterId]: { ...prev[characterId], conditions: next } }));
+    const res = await fetch(`/api/campaigns/${params.id}/dm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ characterId, conditions: next, conditionOp: 'set' }),
+    });
+    if (!res.ok) silentRefresh();
+  }
 
   async function handleNewSession(e: React.FormEvent) {
     e.preventDefault();
@@ -436,6 +585,19 @@ export default function CampaignDetailPage() {
               const isGuest = !m.userId;
               const isMe = !isGuest && m.user?.id === membership?.userId;
               const isLinking = linkingMemberId === m.id;
+              const charState = m.character ? (partyState[m.character.id] ?? {
+                hpCurrent: m.character.hpCurrent,
+                hpMax: m.character.hpMax,
+                hpTemp: m.character.hpTemp,
+                conditions: (m.character.conditions as string[]) ?? [],
+              }) : null;
+              const concentrationSpells = (m.character?.spellsKnown ?? []).filter(
+                s => (s.srdData as Record<string, unknown>)?.concentration === true
+              );
+              const hpPct = charState ? Math.round(Math.max(0, Math.min(100, (charState.hpCurrent / Math.max(1, charState.hpMax)) * 100))) : 0;
+              const hpColor = hpPct > 50 ? '#2e7d32' : hpPct > 25 ? '#e65100' : '#b71c1c';
+              const dmInput = m.character ? (dmInputs[m.character.id] ?? { value: '', mode: 'damage' as const }) : null;
+              const isApplying = m.character ? applying.has(m.character.id) : false;
               return (
                 <div key={m.id} className="panel" style={{ padding: 0 }}>
                   <div className="panel-header" style={{ justifyContent: 'space-between' }}>
@@ -555,6 +717,99 @@ export default function CampaignDetailPage() {
                         )}
                       </>
                     )}
+
+                    {/* HP bar + conditions — visible to all when character is linked */}
+                    {m.character && charState && (
+                      <div style={{ marginTop: 10, borderTop: '1px solid var(--parchment-dark)', paddingTop: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 700, color: hpColor }}>
+                            {charState.hpCurrent}
+                          </span>
+                          <span style={{ fontSize: 11, color: 'var(--border)' }}>/ {charState.hpMax} HP</span>
+                          {charState.hpTemp > 0 && (
+                            <span style={{ fontSize: 10, color: '#1a6b9a', fontWeight: 600 }}>+{charState.hpTemp} temp</span>
+                          )}
+                        </div>
+                        <div style={{ height: 5, background: 'var(--parchment-dark)', borderRadius: 3, overflow: 'hidden', marginBottom: 6 }}>
+                          <div style={{ height: '100%', width: `${hpPct}%`, background: hpColor, borderRadius: 3, transition: 'width 0.3s, background 0.3s' }} />
+                        </div>
+                        {charState.conditions.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                            {charState.conditions.map(cond => (
+                              <span key={cond} style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(139,26,26,0.1)', color: '#8b1a1a', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+                                {cond}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {concentrationSpells.length > 0 && (
+                          <div style={{ marginTop: 4, fontSize: 10, color: '#1a6b9a', fontWeight: 600 }}>
+                            🔮 Conc: {concentrationSpells.map(s => s.spellName).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* DM controls — only for DM/admin */}
+                    {canManage && m.character && charState && dmInput && (
+                      <div style={{ marginTop: 8, borderTop: '1px solid var(--parchment-dark)', paddingTop: 8 }}>
+                        <div style={{ display: 'flex', gap: 4, marginBottom: 6, alignItems: 'center' }}>
+                          <div style={{ display: 'flex', border: '1px solid var(--border-light)', borderRadius: 3, overflow: 'hidden' }}>
+                            {(['damage', 'heal'] as const).map(mode => (
+                              <button
+                                key={mode}
+                                type="button"
+                                onClick={() => setDmInputs(prev => ({ ...prev, [m.character!.id]: { ...dmInput, mode } }))}
+                                style={{
+                                  fontSize: 10, padding: '3px 8px', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 0.3,
+                                  background: dmInput.mode === mode ? (mode === 'damage' ? '#b71c1c' : '#2e7d32') : 'transparent',
+                                  color: dmInput.mode === mode ? '#fff' : 'var(--border)',
+                                }}
+                              >
+                                {mode === 'damage' ? '⚔ DMG' : '+ HEAL'}
+                              </button>
+                            ))}
+                          </div>
+                          <input
+                            type="number"
+                            min={1}
+                            value={dmInput.value}
+                            onChange={e => setDmInputs(prev => ({ ...prev, [m.character!.id]: { ...dmInput, value: e.target.value } }))}
+                            onKeyDown={e => { if (e.key === 'Enter') handleDmApply(m.character!.id, m.character!.name); }}
+                            placeholder="0"
+                            style={{ width: 52, padding: '3px 5px', fontSize: 12, border: '1px solid var(--border-light)', borderRadius: 3, textAlign: 'center' }}
+                          />
+                          <button
+                            className="ink-btn"
+                            style={{ fontSize: 10, padding: '3px 10px' }}
+                            disabled={isApplying || !dmInput.value}
+                            onClick={() => handleDmApply(m.character!.id, m.character!.name)}
+                          >
+                            {isApplying ? '…' : 'Apply'}
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {STANDARD_CONDITIONS.map(cond => {
+                            const active = charState.conditions.includes(cond);
+                            return (
+                              <button
+                                key={cond}
+                                type="button"
+                                onClick={() => handleToggleCondition(m.character!.id, cond)}
+                                style={{
+                                  fontSize: 9, padding: '2px 5px', borderRadius: 3, cursor: 'pointer', fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: 0.2,
+                                  border: active ? '1px solid #8b1a1a' : '1px solid var(--border-light)',
+                                  background: active ? 'rgba(139,26,26,0.12)' : 'transparent',
+                                  color: active ? '#8b1a1a' : 'var(--border)',
+                                }}
+                              >
+                                {cond}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -641,6 +896,33 @@ export default function CampaignDetailPage() {
       {/* Settings tab (DM / admin only) */}
       {activeTab === 'settings' && canManage && (
         <CampaignSettings campaign={campaign} onSaved={load} />
+      )}
+
+      {/* Concentration check modal */}
+      {concCheck && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--parchment)', border: '2px solid #1a6b9a', borderRadius: 6, padding: 24, maxWidth: 380, width: '100%' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, color: '#1a6b9a', marginBottom: 10 }}>
+              🔮 Concentration Check
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 6 }}>
+              <strong>{concCheck.characterName}</strong> took damage while concentrating on:
+            </div>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--ink)', fontWeight: 700, marginBottom: 12 }}>
+              {concCheck.spellNames.join(', ')}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 16 }}>
+              They must make a <strong>Constitution saving throw vs DC {concCheck.dc}</strong>{' '}
+              (DC = max(10, half the damage taken).
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic', marginBottom: 16 }}>
+              Ask the player to roll. If they fail, have them end concentration from their Spells tab.
+            </div>
+            <button className="ink-btn" onClick={() => setConcCheck(null)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

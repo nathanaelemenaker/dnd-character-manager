@@ -227,7 +227,10 @@ export default function CharacterSheetClient({
   const [tab, setTab] = useState('overview');
   const [hpDelta, setHpDelta] = useState(1);
   const [showLevelUp, setShowLevelUp] = useState(false);
+  const [dmToast, setDmToast] = useState(false);
   const prevLevelRef = useRef(state.level);
+  const updatedAtRef = useRef(state._updatedAt);
+  useEffect(() => { updatedAtRef.current = state._updatedAt; }, [state._updatedAt]);
 
   // ── Re-fetch on page focus / visibility restore ───────────────────────
   // Prevents a stale tab from clobbering newer data when it wakes up.
@@ -248,6 +251,7 @@ export default function CharacterSheetClient({
           ac: d.ac ?? 10,
           speed: d.speed ?? 30,
           hp: { current: d.hpCurrent ?? 0, max: d.hpMax ?? 1, temp: d.hpTemp ?? 0 },
+          conditions: (d.conditions as string[]) ?? [],
           inspiration: d.inspiration ?? false,
           currency: d.currency ?? { cp:0,sp:0,ep:0,gp:0,pp:0 },
           bio: d.bio ?? {},
@@ -266,6 +270,32 @@ export default function CharacterSheetClient({
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onFocus);
     };
+  }, [cid]);
+
+  // ── Poll for DM-pushed HP/condition changes every 5 seconds ──────────
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/characters/${cid}/meta`, {
+          credentials: 'include',
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        if (!res.ok) return;
+        const d = await res.json();
+        const serverTs = d.updatedAt ? new Date(d.updatedAt).getTime() : 0;
+        const localTs = updatedAtRef.current ? new Date(updatedAtRef.current).getTime() : 0;
+        if (serverTs > localTs + 1000) {
+          dispatch({ type: 'SET', payload: {
+            hp: { current: d.hpCurrent ?? 0, max: d.hpMax ?? 1, temp: d.hpTemp ?? 0 },
+            conditions: (d.conditions as string[]) ?? [],
+            _updatedAt: new Date(d.updatedAt).toISOString(),
+          }});
+          setDmToast(true);
+          setTimeout(() => setDmToast(false), 3000);
+        }
+      } catch { /* silently ignore */ }
+    }, 5000);
+    return () => clearInterval(interval);
   }, [cid]);
 
   // ── Detect level-up ───────────────────────────────────────────────────
@@ -694,6 +724,16 @@ export default function CharacterSheetClient({
           </button>
         </div>
       </div>
+
+      {dmToast && (
+        <div style={{
+          background: 'rgba(26,107,154,0.12)', border: '1px solid #1a6b9a', borderRadius: 4,
+          padding: '6px 12px', marginBottom: 8,
+          fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: '#1a6b9a', letterSpacing: 0.5,
+        }}>
+          ⚔ Updated by your DM
+        </div>
+      )}
 
       <nav className={styles.nav}>
         {[
