@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest) {
 
   // Get all members in those campaigns
   const allMembers = await prisma.campaignMember.findMany({
-    where: { campaignId: { in: campaignIds }, characterId: { not: null } },
+    where: { campaignId: { in: campaignIds }, characterId: { not: null }, user: { deletedAt: null } },
     select: {
       userId: true,
       role: true,

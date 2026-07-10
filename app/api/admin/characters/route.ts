@@ -13,6 +13,7 @@ export async function GET() {
   }
 
   const characters = await prisma.character.findMany({
+    where: { owner: { deletedAt: null } },
     select: {
       id: true,
       name: true,
