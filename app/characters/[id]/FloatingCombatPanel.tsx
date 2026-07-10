@@ -10,10 +10,12 @@ interface SpellcastingInfo {
   attackBonus: number;
 }
 
-interface ProficientSkill {
+interface SkillEntry {
   name: string;
+  ability: AbilityKey;
   mod: number;
   expert: boolean;
+  proficient: boolean;
 }
 
 interface Props {
@@ -26,7 +28,7 @@ interface Props {
   mods: Record<AbilityKey, number>;
   saveMod: (ab: AbilityKey) => number;
   spellcasting?: SpellcastingInfo | null;
-  proficientSkills?: ProficientSkill[];
+  allSkills?: SkillEntry[];
 }
 
 const ABS: AbilityKey[] = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
@@ -51,9 +53,10 @@ function StatBox({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function FloatingCombatPanel({ name, level, hp, ac, speed, proficiencyBonus, mods, saveMod, spellcasting, proficientSkills = [] }: Props) {
+export default function FloatingCombatPanel({ name, level, hp, ac, speed, proficiencyBonus, mods, saveMod, spellcasting, allSkills = [] }: Props) {
   const [visible, setVisible] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -256,21 +259,40 @@ export default function FloatingCombatPanel({ name, level, hp, ac, speed, profic
             </div>
           </div>
 
-          {/* Proficient skills */}
-          {proficientSkills.length > 0 && (
+          {/* All skills — collapsible */}
+          {allSkills.length > 0 && (
             <div>
-              {sectionLabel('Skills')}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {proficientSkills.map(sk => (
-                  <div key={sk.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: 'var(--border)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
-                      {sk.name}
-                      {sk.expert && <span style={{ fontSize: 7, color: 'var(--gold)', fontWeight: 900 }}>★</span>}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{fmt(sk.mod)}</span>
-                  </div>
-                ))}
-              </div>
+              <button
+                onClick={() => setSkillsOpen(o => !o)}
+                style={{
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: skillsOpen ? 4 : 0,
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1.5, color: 'var(--border)' }}>
+                  Skills
+                </span>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: 'var(--border)', lineHeight: 1 }}>
+                  {skillsOpen ? '−' : '+'}
+                </span>
+              </button>
+              {skillsOpen && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {allSkills.map(sk => (
+                    <div key={sk.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: sk.proficient ? 'var(--ink)' : 'var(--border)', fontWeight: sk.proficient ? 700 : 400, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        {sk.name}
+                        {sk.expert && <span style={{ fontSize: 7, color: 'var(--gold)', fontWeight: 900 }}>★</span>}
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: 'var(--border)', marginLeft: 4 }}>
+                        {sk.ability}
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, color: 'var(--ink)', minWidth: 24, textAlign: 'right' }}>{fmt(sk.mod)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

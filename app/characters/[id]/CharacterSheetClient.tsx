@@ -309,15 +309,16 @@ export default function CharacterSheetClient({
     };
   }, [state.classes, state.abilities, state.proficiencyBonus, state.inventory, mods, state.ac]);
 
-  const proficientSkills = useMemo(() =>
+  const allSkills = useMemo(() =>
     Object.entries(state.skills)
-      .filter(([, sk]) => (sk as any).prof > 0)
       .map(([skillName, sk]: [string, any]) => ({
         name: skillName,
-        mod: mods[sk.ability as AbilityKey] + (sk.prof === 2 ? state.proficiencyBonus * 2 : state.proficiencyBonus),
+        ability: sk.ability as AbilityKey,
+        mod: mods[sk.ability as AbilityKey] + (sk.prof === 2 ? state.proficiencyBonus * 2 : sk.prof === 1 ? state.proficiencyBonus : 0),
         expert: sk.prof === 2,
+        proficient: sk.prof > 0,
       }))
-      .sort((a, b) => b.mod - a.mod),
+      .sort((a, b) => a.name.localeCompare(b.name)),
   [state.skills, state.abilities, state.proficiencyBonus, mods]);
 
   const abs: AbilityKey[] = ['STR','DEX','CON','INT','WIS','CHA'];
@@ -776,7 +777,7 @@ export default function CharacterSheetClient({
         mods={mods}
         saveMod={saveMod}
         spellcasting={spellcasting}
-        proficientSkills={proficientSkills}
+        allSkills={allSkills}
       />
     </div>
   );
