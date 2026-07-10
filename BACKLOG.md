@@ -10,16 +10,16 @@ Last updated: 2026-07-10
 
 ---
 
-#### P1-1. 🩸 DM Can Push HP / Conditions to Player Sheets
-**Why:** Single biggest differentiator over D&D Beyond — they literally cannot do this because players own their own sheets. You control both ends.
+#### ✅ P1-1. 🩸 DM Can Push HP / Conditions to Player Sheets (2026-07-10)
 
-**Scope:**
-- DM combat panel in campaign view: select one or more PC targets, deal damage or heal, apply/remove conditions
-- Changes reflect immediately on the target player's sheet (poll or SSE)
-- Automatic concentration check prompt when a concentrating character takes damage (DM sees alert, can auto-fail or roll)
-- Spell duration / effect tracking with round countdown and auto-expiry
+**Shipped:**
+- `POST /api/campaigns/[id]/dm` — DM-only endpoint; applies HP delta (damage absorbs temp HP first, heals clamp at max) and condition changes to any PLAYER character in the campaign
+- Campaign GET extended to include `hpCurrent`, `hpMax`, `hpTemp`, `conditions`, `updatedAt`, and `spellsKnown (prepared=true)` per member character
+- Campaign Party tab: HP bar + active condition badges visible to all members; DM-only controls: Damage/Heal toggle + number input + Apply button, 15 condition toggle buttons; concentration check modal fires when DM deals damage to a concentrating character (shows DC = max(10, damage/2))
+- Party tab polls silently every 5s so DM sees latest values without refresh
+- Character sheet polls `/meta` every 5s and merges HP/conditions when server timestamp is newer; shows "Updated by DM" banner on merge; focus/visibility refresh also syncs conditions
 
-**Recommendation:** Build this before anything else. It's the feature that makes this app irreplaceable for Sam mid-combat.
+**Deferred to P1-3:** Spell duration round countdown (needs initiative/turn tracker to be useful)
 
 ---
 
