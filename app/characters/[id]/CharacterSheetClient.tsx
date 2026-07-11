@@ -36,6 +36,7 @@ interface ItemDef {
   id: string; srdKey: string | null; name: string; type: string | null;
   weight: number | null; rarity: string | null;
   requiresAttunement: boolean | null; keyAbilities: string | null; text: string | null;
+  modifiers?: Record<string, unknown> | null;
 }
 interface InventoryItem {
   id: string; quantity: number; attuned: boolean; equipped: boolean;
@@ -307,11 +308,55 @@ export default function CharacterSheetClient({
   }, [state.level]);
 
   // ── Derived ──────────────────────────────────────────────────────────────
+  const effectiveAbilities = useMemo(() => {
+    const eff = { ...state.abilities };
+    for (const item of state.inventory) {
+      if (!item.equipped) continue;
+      if (item.itemDef.requiresAttunement && !item.attuned) continue;
+      const m = (item.itemDef.modifiers ?? {}) as Record<string, any>;
+      if (m.setAbility) {
+        for (const [key, val] of Object.entries(m.setAbility as Record<string, number>)) {
+          const k = key as AbilityKey;
+          if (k in eff) eff[k] = Math.max(eff[k], val as number);
+        }
+      }
+      if (m.addAbility) {
+        for (const [key, val] of Object.entries(m.addAbility as Record<string, number>)) {
+          const k = key as AbilityKey;
+          if (k in eff) eff[k] = (eff[k] ?? 10) + (val as number);
+        }
+      }
+    }
+    return eff;
+  }, [state.abilities, state.inventory]);
+
+  // Track which abilities are boosted by an equipped item and the source item name
+  const abilityItemSources = useMemo(() => {
+    const sources = {} as Partial<Record<AbilityKey, string>>;
+    for (const item of state.inventory) {
+      if (!item.equipped) continue;
+      if (item.itemDef.requiresAttunement && !item.attuned) continue;
+      const m = (item.itemDef.modifiers ?? {}) as Record<string, any>;
+      if (m.setAbility) {
+        for (const [key, val] of Object.entries(m.setAbility as Record<string, number>)) {
+          const k = key as AbilityKey;
+          if ((state.abilities[k] ?? 0) < (val as number)) sources[k] = item.itemDef.name;
+        }
+      }
+      if (m.addAbility) {
+        for (const [key] of Object.entries(m.addAbility as Record<string, number>)) {
+          sources[key as AbilityKey] = item.itemDef.name;
+        }
+      }
+    }
+    return sources;
+  }, [state.abilities, state.inventory]);
+
   const mods = useMemo(() => {
     const out = {} as Record<AbilityKey, number>;
-    (['STR','DEX','CON','INT','WIS','CHA'] as AbilityKey[]).forEach((k) => { out[k] = Math.floor((state.abilities[k] - 10) / 2); });
+    (['STR','DEX','CON','INT','WIS','CHA'] as AbilityKey[]).forEach((k) => { out[k] = Math.floor((effectiveAbilities[k] - 10) / 2); });
     return out;
-  }, [state.abilities]);
+  }, [effectiveAbilities]);
 
   function skillMod(name: string) {
     const sk = state.skills[name];
@@ -685,7 +730,7 @@ export default function CharacterSheetClient({
   }, [saveConditions]);
 
   const isDM = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
-  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, updateFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition, toggleInspiration };
+  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, updateFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition, toggleInspiration, effectiveAbilities, abilityItemSources };
 
   return (
     <div className={styles.root}>
@@ -1013,7 +1058,7 @@ function ConditionTracker({ conditions, toggleCondition }: { conditions: string[
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration }: any) {
+function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration, effectiveAbilities, abilityItemSources }: any) {
   const init = mods['DEX'];
   return (
     <>
@@ -1061,13 +1106,16 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
         <div className="panel-header" onClick={() => setTab('abilities')} style={{ cursor: 'pointer' }}>Ability Scores <span style={{ marginLeft: 'auto' }}>›</span></div>
         <div className="panel-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 6 }}>
-            {(['STR','DEX','CON','INT','WIS','CHA'] as AbilityKey[]).map((ab) => (
-              <div key={ab} onClick={() => setTab('abilities')} style={{ background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, textAlign: 'center', padding: '5px 3px', cursor: 'pointer' }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase' }}>{ab}</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>{state.abilities[ab]}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', background: 'var(--parchment-dark)', border: '1px solid var(--border-light)', borderRadius: 2, padding: '0 4px', marginTop: 2, display: 'inline-block' }}>{fmtMod(mods[ab])}</div>
-              </div>
-            ))}
+            {(['STR','DEX','CON','INT','WIS','CHA'] as AbilityKey[]).map((ab) => {
+              const boosted = abilityItemSources?.[ab];
+              return (
+                <div key={ab} onClick={() => setTab('abilities')} style={{ background: 'var(--parchment)', border: boosted ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)', borderRadius: 4, textAlign: 'center', padding: '5px 3px', cursor: 'pointer', position: 'relative' }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase' }}>{ab}</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, color: boosted ? 'var(--gold)' : undefined }}>{effectiveAbilities?.[ab] ?? state.abilities[ab]}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', background: 'var(--parchment-dark)', border: '1px solid var(--border-light)', borderRadius: 2, padding: '0 4px', marginTop: 2, display: 'inline-block' }}>{fmtMod(mods[ab])}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1194,7 +1242,7 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
 }
 
 // ── Abilities ─────────────────────────────────────────────────────────────
-function AbilitiesTab({ state, dispatch, mods, abs, setAbility, toggleSave, saveMod, skillMod }: any) {
+function AbilitiesTab({ state, dispatch, mods, abs, setAbility, toggleSave, saveMod, skillMod, effectiveAbilities, abilityItemSources }: any) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1206,13 +1254,28 @@ function AbilitiesTab({ state, dispatch, mods, abs, setAbility, toggleSave, save
         <div className="panel-header">Ability Scores</div>
         <div className="panel-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-            {abs.map((ab: AbilityKey) => (
-              <div key={ab} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '10px 6px' }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginBottom: 4 }}>{ab}</div>
-                <input type="number" min={1} max={30} value={state.abilities[ab]} onChange={(e) => setAbility(ab, parseInt(e.target.value) || 10)} style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, width: '100%', textAlign: 'center', background: 'transparent', border: 'none', borderBottom: '1.5px solid var(--border-light)', outline: 'none', color: 'var(--ink)', marginBottom: 4 }} />
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--parchment)', background: 'var(--ink)', border: '1px solid var(--gold)', borderRadius: 3, padding: '1px 8px', display: 'inline-block' }}>{fmtMod(mods[ab])}</div>
-              </div>
-            ))}
+            {abs.map((ab: AbilityKey) => {
+              const source = abilityItemSources?.[ab];
+              const effective = effectiveAbilities?.[ab] ?? state.abilities[ab];
+              return (
+                <div key={ab} style={{ textAlign: 'center', background: 'var(--parchment)', border: source ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)', borderRadius: 4, padding: '10px 6px' }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginBottom: 4 }}>{ab}</div>
+                  {source ? (
+                    <>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 700, color: 'var(--gold)', lineHeight: 1 }}>{effective}</div>
+                      <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', margin: '2px 0' }}>
+                        base <input type="number" min={1} max={30} value={state.abilities[ab]} onChange={(e) => setAbility(ab, parseInt(e.target.value) || 10)}
+                          style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, width: 36, textAlign: 'center', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-light)', outline: 'none', color: 'var(--ink)' }} />
+                      </div>
+                      <div style={{ fontSize: 9, color: 'var(--gold)', fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>✦ {source}</div>
+                    </>
+                  ) : (
+                    <input type="number" min={1} max={30} value={state.abilities[ab]} onChange={(e) => setAbility(ab, parseInt(e.target.value) || 10)} style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, width: '100%', textAlign: 'center', background: 'transparent', border: 'none', borderBottom: '1.5px solid var(--border-light)', outline: 'none', color: 'var(--ink)', marginBottom: 4 }} />
+                  )}
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--parchment)', background: 'var(--ink)', border: '1px solid var(--gold)', borderRadius: 3, padding: '1px 8px', display: 'inline-block' }}>{fmtMod(mods[ab])}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -2755,7 +2818,7 @@ function AttunementButton({ item, attunedCount, onToggle, onLimitReached }: {
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────
-function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, totalWeight }: any) {
+function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, totalWeight, effectiveAbilities }: any) {
   const [searchQ, setSearchQ] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<any[]>([]);
@@ -3051,7 +3114,7 @@ function InventoryTab({ state, dispatch, saveMeta, addInventoryFromSrd, addCusto
             </div>
           )}
           <div style={{ fontSize: 12, color: 'var(--border)', fontStyle: 'italic', marginBottom: 6 }}>
-            Total: {totalWeight.toFixed(1)} lb · Capacity: {state.abilities.STR * 15} lb
+            Total: {totalWeight.toFixed(1)} lb · Capacity: {(effectiveAbilities?.STR ?? state.abilities.STR) * 15} lb
           </div>
           {state.inventory.map((it: InventoryItem) => (
             <div key={it.id} style={{ padding: '6px 0', borderBottom: '0.5px solid var(--parchment-dark)' }}>

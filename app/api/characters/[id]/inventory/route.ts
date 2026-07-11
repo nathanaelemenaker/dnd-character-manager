@@ -104,7 +104,7 @@ export async function GET(request: NextRequest, context: { params: { id: string 
     const items = await prisma.inventoryItem.findMany({
       where,
       include: {
-        itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true, sourceAttribution: true } },
+        itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true, modifiers: true, sourceAttribution: true } },
       },
       orderBy: { id: 'desc' },
     });
@@ -218,7 +218,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
     const created = await prisma.inventoryItem.create({
       data: { characterId, itemDefId: itemDef.id, quantity, attuned, containerId, notes },
       include: {
-        itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true } },
+        itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true, modifiers: true } },
       },
     });
 
@@ -256,7 +256,7 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
       where: { id: invId, characterId },
       data,
       include: {
-        itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true } },
+        itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true, modifiers: true } },
       },
     });
 

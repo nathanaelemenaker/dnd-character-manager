@@ -18,6 +18,7 @@ export interface InventoryItem {
     keyAbilities: string | null;
     text: string | null;
     weight: number | null;
+    modifiers?: Record<string, unknown> | null;
   };
 }
 
