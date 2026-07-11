@@ -358,12 +358,28 @@ export default function CharacterSheetClient({
     return out;
   }, [effectiveAbilities]);
 
+  // Accumulate flat numeric bonuses from all equipped+attuned items (non-ability-score modifiers)
+  const itemBonusTotals = useMemo(() => {
+    const totals = { saveBonus: 0, spellAttackBonus: 0, saveDCBonus: 0, proficiencyBonus: 0, speedBonus: 0, initBonus: 0 };
+    for (const item of state.inventory) {
+      if (!item.equipped) continue;
+      if (item.itemDef.requiresAttunement && !item.attuned) continue;
+      const m = (item.itemDef.modifiers ?? {}) as Record<string, any>;
+      for (const key of Object.keys(totals) as (keyof typeof totals)[]) {
+        if (typeof m[key] === 'number') totals[key] += m[key];
+      }
+    }
+    return totals;
+  }, [state.inventory]);
+
+  const effectiveProfBonus = state.proficiencyBonus + itemBonusTotals.proficiencyBonus;
+
   function skillMod(name: string) {
     const sk = state.skills[name];
     if (!sk) return 0;
-    return mods[sk.ability] + (sk.prof === 1 ? state.proficiencyBonus : sk.prof === 2 ? state.proficiencyBonus * 2 : 0);
+    return mods[sk.ability] + (sk.prof === 1 ? effectiveProfBonus : sk.prof === 2 ? effectiveProfBonus * 2 : 0);
   }
-  function saveMod(ab: AbilityKey) { return mods[ab] + (state.saves[ab] ? state.proficiencyBonus : 0); }
+  function saveMod(ab: AbilityKey) { return mods[ab] + (state.saves[ab] ? effectiveProfBonus : 0) + itemBonusTotals.saveBonus; }
   const totalWeight = useMemo(() => state.inventory.reduce((s, i) => s + (i.itemDef.weight ?? 0) * i.quantity, 0), [state.inventory]);
   const hpPct = clamp(Math.round((state.hp.current / state.hp.max) * 100), 0, 100);
 
@@ -374,27 +390,32 @@ export default function CharacterSheetClient({
     if (!casters.length) return null;
     const abilityKey = CLASS_SPELL_ABILITY[casters[0].name.toLowerCase()];
     const baseMod = mods[abilityKey];
-    const itemBonuses = computeStatBonuses(state.inventory, state.classes, mods, state.ac);
-    const atkItemBonus = sumNumericBonuses(itemBonuses, 'Spell Attack Rolls');
-    const dcItemBonus  = sumNumericBonuses(itemBonuses, 'Spell Save DC');
+    // Text-parse only items without structured spell bonuses to avoid double-counting
+    const textItems = state.inventory.filter((it: InventoryItem) => {
+      const m = (it.itemDef.modifiers ?? {}) as any;
+      return !m.spellAttackBonus && !m.saveDCBonus;
+    });
+    const itemBonuses = computeStatBonuses(textItems, state.classes, mods, state.ac);
+    const atkItemBonus = sumNumericBonuses(itemBonuses, 'Spell Attack Rolls') + itemBonusTotals.spellAttackBonus;
+    const dcItemBonus  = sumNumericBonuses(itemBonuses, 'Spell Save DC') + itemBonusTotals.saveDCBonus;
     return {
       abilityKey,
-      saveDC: 8 + state.proficiencyBonus + baseMod + dcItemBonus,
-      attackBonus: state.proficiencyBonus + baseMod + atkItemBonus,
+      saveDC: 8 + effectiveProfBonus + baseMod + dcItemBonus,
+      attackBonus: effectiveProfBonus + baseMod + atkItemBonus,
     };
-  }, [state.classes, state.abilities, state.proficiencyBonus, state.inventory, mods, state.ac]);
+  }, [state.classes, mods, effectiveProfBonus, state.inventory, state.ac, itemBonusTotals]);
 
   const allSkills = useMemo(() =>
     Object.entries(state.skills)
       .map(([skillName, sk]: [string, any]) => ({
         name: skillName,
         ability: sk.ability as AbilityKey,
-        mod: mods[sk.ability as AbilityKey] + (sk.prof === 2 ? state.proficiencyBonus * 2 : sk.prof === 1 ? state.proficiencyBonus : 0),
+        mod: mods[sk.ability as AbilityKey] + (sk.prof === 2 ? effectiveProfBonus * 2 : sk.prof === 1 ? effectiveProfBonus : 0),
         expert: sk.prof === 2,
         proficient: sk.prof > 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
-  [state.skills, state.abilities, state.proficiencyBonus, mods]);
+  [state.skills, mods, effectiveProfBonus]);
 
   const abs: AbilityKey[] = ['STR','DEX','CON','INT','WIS','CHA'];
 
@@ -730,7 +751,7 @@ export default function CharacterSheetClient({
   }, [saveConditions]);
 
   const isDM = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
-  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, updateFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition, toggleInspiration, effectiveAbilities, abilityItemSources };
+  const tabProps = { state, dispatch, mods, abs, hpDelta, setHpDelta, hpPct, setTab, totalWeight, skillMod, saveMod, adjustHP, toggleDS, toggleSave, cycleSkill, toggleSlot, addSlot, fixSlots, addSpell, removeSpell, togglePrepared, longRest, shortRest, addInventoryFromSrd, addCustomInventory, patchInventory, deleteInventory, saveKeyAbilities, addFeature, removeFeature, updateFeature, saveClasses, saveCharacterMeta, deleteCharacter, saveMeta, setShowLevelUp, conditions: state.conditions, toggleCondition, toggleInspiration, effectiveAbilities, abilityItemSources, itemBonusTotals, effectiveProfBonus };
 
   return (
     <div className={styles.root}>
@@ -1144,7 +1165,12 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
           <div className="panel-header" onClick={() => setTab('combat')} style={{ cursor: 'pointer' }}>Combat <span style={{ marginLeft: 'auto' }}>›</span></div>
           <div className="panel-body">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8 }}>
-              {[['Armor Class', state.ac], ['Initiative', fmtMod(mods['DEX'])], ['Speed', state.speed+'ft'], ['Prof.', '+'+state.proficiencyBonus]].map(([l,v]) => (
+              {[
+                ['Armor Class', state.ac],
+                ['Initiative', fmtMod(mods['DEX'] + (itemBonusTotals?.initBonus ?? 0))],
+                ['Speed', (state.speed + (itemBonusTotals?.speedBonus ?? 0)) + 'ft'],
+                ['Prof.', '+'+(effectiveProfBonus ?? state.proficiencyBonus)],
+              ].map(([l,v]) => (
                 <div key={l as string} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
                   <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700 }}>{v}</div>
                   <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>{l}</div>
@@ -1242,12 +1268,13 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
 }
 
 // ── Abilities ─────────────────────────────────────────────────────────────
-function AbilitiesTab({ state, dispatch, mods, abs, setAbility, toggleSave, saveMod, skillMod, effectiveAbilities, abilityItemSources }: any) {
+function AbilitiesTab({ state, dispatch, mods, abs, setAbility, toggleSave, saveMod, skillMod, effectiveAbilities, abilityItemSources, effectiveProfBonus, itemBonusTotals }: any) {
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={{ background: 'var(--ink)', color: 'var(--gold-light)', border: '1.5px solid var(--gold)', borderRadius: 4, padding: '4px 10px', fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700 }}>
-          Proficiency Bonus: +{state.proficiencyBonus}
+          Proficiency Bonus: +{effectiveProfBonus ?? state.proficiencyBonus}
+          {itemBonusTotals?.proficiencyBonus > 0 && <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--gold-light)', marginLeft: 4 }}>(+{itemBonusTotals.proficiencyBonus} from item)</span>}
         </span>
       </div>
       <div className="panel">
@@ -1521,11 +1548,41 @@ function computeStatBonuses(
   });
 }
 
-function ActiveStatBonuses({ state, mods, onApplyAC }: {
-  state: any; mods: Record<string, number>; onApplyAC: (ac: number) => void;
+function ActiveStatBonuses({ state, mods, onApplyAC, itemBonusTotals }: {
+  state: any; mods: Record<string, number>; onApplyAC: (ac: number) => void; itemBonusTotals?: Record<string, number>;
 }) {
-  const bonuses = computeStatBonuses(state.inventory, state.classes, mods, state.ac);
-  if (!bonuses.length) return null;
+  // Text-parse only items that don't have structured spell bonuses (to avoid double display)
+  const textItems = (state.inventory ?? []).filter((it: any) => {
+    const m = (it.itemDef?.modifiers ?? {}) as any;
+    return !m.spellAttackBonus && !m.saveDCBonus;
+  });
+  const bonuses = computeStatBonuses(textItems, state.classes, mods, state.ac);
+
+  // Append structured bonuses as display entries
+  const STRUCTURED_LABELS: Record<string, string> = {
+    saveBonus: 'Saving Throws',
+    spellAttackBonus: 'Spell Attack Rolls',
+    saveDCBonus: 'Spell Save DC',
+    proficiencyBonus: 'Proficiency Bonus',
+    speedBonus: 'Speed',
+    initBonus: 'Initiative',
+  };
+  const structuredBonuses: StatBonus[] = [];
+  for (const item of (state.inventory ?? [])) {
+    if (!item.equipped) continue;
+    if (item.itemDef?.requiresAttunement && !item.attuned) continue;
+    const m = (item.itemDef?.modifiers ?? {}) as Record<string, any>;
+    for (const [key, label] of Object.entries(STRUCTURED_LABELS)) {
+      if (typeof m[key] === 'number' && m[key] !== 0) {
+        const val = m[key] as number;
+        const displayVal = key === 'speedBonus' ? `+${val} ft` : (val >= 0 ? `+${val}` : `${val}`);
+        structuredBonuses.push({ stat: label, bonus: displayVal, source: item.itemDef.name });
+      }
+    }
+  }
+
+  const allBonuses = [...bonuses, ...structuredBonuses];
+  if (!allBonuses.length) return null;
 
   // Pull out the AC formula bonus for the apply button
   const acFormula = bonuses.find(b => b.isFormula);
@@ -1542,7 +1599,7 @@ function ActiveStatBonuses({ state, mods, onApplyAC }: {
         Active Stat Bonuses — Equipped Items
       </div>
       <div style={{ padding: '6px 10px' }}>
-        {bonuses.map((b, i) => (
+        {allBonuses.map((b, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8,
             padding: '3px 0', borderBottom: '0.5px solid var(--parchment-dark)',
             flexWrap: 'wrap' }}>
@@ -1575,33 +1632,34 @@ function ActiveStatBonuses({ state, mods, onApplyAC }: {
 }
 
 
-function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition, saveMod, toggleSave, toggleInspiration }: any) {
+function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP, toggleDS, longRest, shortRest, saveMeta, conditions, toggleCondition, saveMod, toggleSave, toggleInspiration, itemBonusTotals, effectiveProfBonus }: any) {
   return (
     <>
       <ActiveStatBonuses
         state={state}
         mods={mods}
+        itemBonusTotals={itemBonusTotals}
         onApplyAC={(v) => { dispatch({ type: 'SET', payload: { ac: v } }); saveMeta({ ac: v }); }}
       />
       <div className="panel">
         <div className="panel-header">Combat Statistics</div>
         <div className="panel-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
-            {[
-              { label: 'Armor Class', val: state.ac, key: 'ac', min: 0, max: 99 },
-              { label: 'Speed (ft)', val: state.speed, key: 'speed', min: 0, max: 999 },
-            ].map(({ label, val, key, min, max }) => (
-              <div key={key} style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
-                <input type="number" min={min} max={max} value={val} onChange={(e) => { const v = parseInt(e.target.value)||0; dispatch({ type: 'SET', payload: { [key]: v } }); saveMeta({ [key]: v }); }} style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, width: '100%', textAlign: 'center', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-light)', outline: 'none', color: 'var(--ink)' }} />
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
             <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>{fmtMod(mods['DEX'])}</div>
+              <input type="number" min={0} max={99} value={state.ac} onChange={(e) => { const v = parseInt(e.target.value)||0; dispatch({ type: 'SET', payload: { ac: v } }); saveMeta({ ac: v }); }} style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, width: '100%', textAlign: 'center', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-light)', outline: 'none', color: 'var(--ink)' }} />
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>Armor Class</div>
+            </div>
+            <div style={{ textAlign: 'center', background: 'var(--parchment)', border: (itemBonusTotals?.speedBonus > 0) ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: (itemBonusTotals?.speedBonus > 0) ? 'var(--gold)' : undefined }}>{state.speed + (itemBonusTotals?.speedBonus ?? 0)}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>Speed (ft)</div>
+              {itemBonusTotals?.speedBonus > 0 && <div style={{ fontSize: 8, color: 'var(--border)', fontStyle: 'italic' }}>base {state.speed}</div>}
+            </div>
+            <div style={{ textAlign: 'center', background: 'var(--parchment)', border: (itemBonusTotals?.initBonus > 0) ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: (itemBonusTotals?.initBonus > 0) ? 'var(--gold)' : undefined }}>{fmtMod(mods['DEX'] + (itemBonusTotals?.initBonus ?? 0))}</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>Initiative</div>
             </div>
-            <div style={{ textAlign: 'center', background: 'var(--parchment)', border: '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700 }}>+{state.proficiencyBonus}</div>
+            <div style={{ textAlign: 'center', background: 'var(--parchment)', border: (itemBonusTotals?.proficiencyBonus > 0) ? '1.5px solid var(--gold)' : '1.5px solid var(--border-light)', borderRadius: 4, padding: '6px 4px' }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: (itemBonusTotals?.proficiencyBonus > 0) ? 'var(--gold)' : undefined }}>+{effectiveProfBonus ?? state.proficiencyBonus}</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 8, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', marginTop: 2 }}>Prof. Bonus</div>
             </div>
           </div>
@@ -1659,7 +1717,7 @@ function CombatTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, adjustHP
           ))}
         </div>
       </div>
-      <WeaponPanel state={state} mods={mods} />
+      <WeaponPanel state={state} mods={mods} effectiveProfBonus={effectiveProfBonus} />
       <ConditionTracker conditions={conditions ?? []} toggleCondition={toggleCondition} />
       <InitiativeTracker />
       <DiceRoller />
@@ -1838,7 +1896,7 @@ function DiceRoller() {
 }
 
 // ── Weapon Attack Panel ───────────────────────────────────────────────────────
-function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number> }) {
+function WeaponPanel({ state, mods, effectiveProfBonus }: { state: any; mods: Record<string, number>; effectiveProfBonus?: number }) {
   const [rolls, setRolls] = useState<Record<string, { atk: number | null; dmg: number | null; atkRaw: number | null; dmgRaw: number | null; dmgDie: number | null }>>({});
 
   const weapons = (state.inventory ?? []).filter((inv: any) => {
@@ -1908,11 +1966,16 @@ function WeaponPanel({ state, mods }: { state: any; mods: Record<string, number>
           const finesse = isFinesse(inv);
           const strMod = mods['STR'] ?? 0;
           const dexMod = mods['DEX'] ?? 0;
-          const prof = state.proficiencyBonus ?? 2;
+          const prof = effectiveProfBonus ?? state.proficiencyBonus ?? 2;
+          const itemMods = (inv.itemDef.modifiers ?? {}) as Record<string, any>;
+          const needsAttuned = inv.itemDef.requiresAttunement;
+          const isActive = !needsAttuned || inv.attuned;
+          const itemAtk = isActive ? (itemMods.attackBonus ?? 0) : 0;
+          const itemDmg = isActive ? (itemMods.damageBonus ?? 0) : 0;
 
           const primaryMod = ranged ? dexMod : finesse ? Math.max(strMod, dexMod) : strMod;
-          const atkBonus = primaryMod + prof;
-          const dmgBonus = primaryMod;
+          const atkBonus = primaryMod + prof + itemAtk;
+          const dmgBonus = primaryMod + itemDmg;
           const damage = parseDamage(inv.itemDef?.text);
           const damageDice = parseDamageDice(inv.itemDef?.text);
           const r = rolls[inv.id];
