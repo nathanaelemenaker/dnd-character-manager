@@ -229,6 +229,7 @@ export default function CharacterSheetClient({
   const [hpDelta, setHpDelta] = useState(1);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [dmToast, setDmToast] = useState(false);
+  const [portraitExpanded, setPortraitExpanded] = useState(false);
   const prevLevelRef = useRef(state.level);
   const updatedAtRef = useRef(state._updatedAt);
   useEffect(() => { updatedAtRef.current = state._updatedAt; }, [state._updatedAt]);
@@ -885,6 +886,42 @@ export default function CharacterSheetClient({
         spellcasting={spellcasting}
         allSkills={allSkills}
       />
+
+      {portraitExpanded && state.portrait && (
+        <div
+          onClick={() => setPortraitExpanded(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={state.portrait}
+            alt="portrait"
+            style={{
+              maxWidth: 'min(90vw, 400px)',
+              maxHeight: 'min(90vh, 400px)',
+              borderRadius: 8,
+              border: '3px solid var(--gold)',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.7)',
+              objectFit: 'contain',
+            }}
+          />
+          <button
+            onClick={(e) => { e.stopPropagation(); setPortraitExpanded(false); }}
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              background: 'rgba(0,0,0,0.6)', border: '1px solid var(--gold)',
+              color: 'var(--gold)', borderRadius: '50%',
+              width: 36, height: 36, fontSize: 20, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              lineHeight: 1,
+            }}
+          >×</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1088,10 +1125,10 @@ function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab
         <div className="panel-body">
           <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr', gap: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div onClick={() => setTab('bio')} style={{ width: 72, height: 72, borderRadius: '50%', border: '2.5px solid var(--gold)', background: 'var(--parchment-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, cursor: 'pointer', overflow: 'hidden' }}>
+              <div onClick={() => state.portrait ? setPortraitExpanded(true) : setTab('bio')} style={{ width: 72, height: 72, borderRadius: '50%', border: '2.5px solid var(--gold)', background: 'var(--parchment-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, cursor: 'pointer', overflow: 'hidden' }}>
                 {state.portrait ? <img src={state.portrait} alt="portrait" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🧝'}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>tap to edit</div>
+              <div onClick={() => setTab('bio')} style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', cursor: 'pointer' }}>tap to edit</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px' }}>
               {[['Name', state.name], ['Race', state.race || '—'], ['Background', state.background || '—'], ['Alignment', state.alignment || '—']].map(([l, v]) => (
