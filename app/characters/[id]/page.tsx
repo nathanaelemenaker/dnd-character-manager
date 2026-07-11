@@ -37,7 +37,7 @@ export default async function CharacterDetailPage({
       prisma.spellSlotLedger.findMany({ where: { characterId: character.id }, orderBy: { level: 'asc' } }),
       prisma.inventoryItem.findMany({
         where: { characterId: character.id },
-        include: { itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true } } },
+        include: { itemDef: { select: { id: true, srdKey: true, name: true, type: true, weight: true, rarity: true, requiresAttunement: true, keyAbilities: true, text: true, modifiers: true } } },
         orderBy: { id: 'desc' },
       }),
       prisma.characterCustomFeature.findMany({ where: { characterId: character.id }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], select: { id: true, name: true, source: true, desc: true } }),
@@ -91,7 +91,7 @@ export default async function CharacterDetailPage({
       initialInventory={inventoryRows.map((item) => ({
         id: item.id, quantity: item.quantity, attuned: item.attuned,
         equipped: item.equipped, notes: item.notes, containerId: item.containerId,
-        itemDef: { id: item.itemDef.id, srdKey: item.itemDef.srdKey, name: item.itemDef.name, type: item.itemDef.type, weight: item.itemDef.weight, rarity: item.itemDef.rarity, requiresAttunement: item.itemDef.requiresAttunement, keyAbilities: (item.itemDef as any).keyAbilities ?? null, text: item.itemDef.text },
+        itemDef: { id: item.itemDef.id, srdKey: item.itemDef.srdKey, name: item.itemDef.name, type: item.itemDef.type, weight: item.itemDef.weight, rarity: item.itemDef.rarity, requiresAttunement: item.itemDef.requiresAttunement, keyAbilities: (item.itemDef as any).keyAbilities ?? null, text: item.itemDef.text, modifiers: (item.itemDef as any).modifiers ?? null },
       }))}
       initialFeatures={featureRows}
     />
