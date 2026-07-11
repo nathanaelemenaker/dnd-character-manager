@@ -14,8 +14,9 @@ export default async function CharacterDetailPage({
   const session = await getSession();
   if (!session) redirect('/auth/login');
 
+  const isAdmin = session.role === 'ADMIN' || session.role === 'SUPER_ADMIN';
   const character = await prisma.character.findFirst({
-    where: { id: params.id, ownerId: session.userId },
+    where: { id: params.id, ...(isAdmin ? {} : { ownerId: session.userId }) },
     select: {
       id: true, name: true, level: true, ruleset: true,
       race: true, background: true, alignment: true, xp: true,

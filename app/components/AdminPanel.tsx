@@ -62,6 +62,12 @@ export default function AdminPanel({ currentUserRole, onClose }: Props) {
   const [resetError, setResetError] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
 
+  // Character transfer
+  const [transferCharId, setTransferCharId] = useState<string | null>(null);
+  const [transferToUserId, setTransferToUserId] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferError, setTransferError] = useState('');
+
   const loadUsers = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -81,10 +87,17 @@ export default function AdminPanel({ currentUserRole, onClose }: Props) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/admin/characters');
-      if (!res.ok) throw new Error('Failed to load characters');
-      const data = await res.json();
-      setCharacters(data.characters ?? data);
+      const [charsRes, usersRes] = await Promise.all([
+        fetch('/api/admin/characters'),
+        fetch('/api/admin/users'),
+      ]);
+      if (!charsRes.ok) throw new Error('Failed to load characters');
+      const charsData = await charsRes.json();
+      setCharacters(charsData.characters ?? charsData);
+      if (usersRes.ok) {
+        const usersData = await usersRes.json();
+        setUsers(usersData.users ?? usersData);
+      }
     } catch {
       setError('Could not load characters.');
     } finally {
@@ -188,6 +201,26 @@ export default function AdminPanel({ currentUserRole, onClose }: Props) {
     } else {
       const data = await res.json();
       setCreateError(data.error || 'Failed to create user');
+    }
+  }
+
+  async function handleTransfer() {
+    if (!transferCharId || !transferToUserId) return;
+    setTransferLoading(true);
+    setTransferError('');
+    const res = await fetch('/api/admin/characters/reassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ characterId: transferCharId, toUserId: transferToUserId }),
+    });
+    setTransferLoading(false);
+    if (res.ok) {
+      setTransferCharId(null);
+      setTransferToUserId('');
+      loadCharacters();
+    } else {
+      const data = await res.json();
+      setTransferError(data.error || 'Transfer failed');
     }
   }
 
@@ -395,34 +428,75 @@ export default function AdminPanel({ currentUserRole, onClose }: Props) {
 
           {/* ── Characters tab ── */}
           {!loading && tab === 'characters' && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-body)', fontSize: '0.95rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
-                  {['Character', 'Owner', 'Level', 'Ruleset', 'Last Updated'].map((h) => (
-                    <th key={h} style={{ padding: '0.4rem 0.6rem', color: 'var(--ink-light)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 600 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {characters.map((c) => (
-                  <tr
-                    key={c.id}
-                    style={{ borderBottom: '1px solid var(--border-light)', cursor: 'pointer' }}
-                    onClick={() => { onClose(); window.location.href = `/characters/${c.id}`; }}
-                  >
-                    <td style={{ padding: '0.5rem 0.6rem', fontWeight: 600 }}>{c.name}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', fontSize: '0.85rem', color: 'var(--ink-light)' }}>
-                      {c.owner.name || c.owner.email}
-                    </td>
-                    <td style={{ padding: '0.5rem 0.6rem' }}>{c.level}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', fontSize: '0.85rem' }}>{c.ruleset}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', fontSize: '0.85rem', color: 'var(--ink-light)' }}>
-                      {new Date(c.updatedAt).toLocaleDateString()}
-                    </td>
+            <>
+              {transferCharId && (
+                <div className="panel" style={{ marginBottom: '1.25rem', borderColor: 'var(--gold)' }}>
+                  <div className="panel-header">
+                    Transfer — {characters.find((c) => c.id === transferCharId)?.name}
+                  </div>
+                  <div className="panel-body" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select
+                      value={transferToUserId}
+                      onChange={(e) => setTransferToUserId(e.target.value)}
+                      style={{ flex: 1, minWidth: '160px', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border)', fontFamily: 'var(--font-body)', background: 'var(--parchment)' }}
+                    >
+                      <option value="">— select new owner —</option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>{u.name || u.email} ({u.email})</option>
+                      ))}
+                    </select>
+                    <button className="ink-btn" onClick={handleTransfer} disabled={transferLoading || !transferToUserId}>
+                      {transferLoading ? 'Transferring…' : 'Transfer'}
+                    </button>
+                    <button className="ink-btn" onClick={() => { setTransferCharId(null); setTransferToUserId(''); setTransferError(''); }}>
+                      Cancel
+                    </button>
+                  </div>
+                  {transferError && <p style={{ color: 'var(--red)', margin: '0.5rem 0 0', fontSize: '0.85rem' }}>{transferError}</p>}
+                </div>
+              )}
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-body)', fontSize: '0.95rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
+                    {['Character', 'Owner', 'Level', 'Ruleset', 'Last Updated', 'Actions'].map((h) => (
+                      <th key={h} style={{ padding: '0.4rem 0.6rem', color: 'var(--ink-light)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 600 }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {characters.map((c) => (
+                    <tr
+                      key={c.id}
+                      style={{ borderBottom: '1px solid var(--border-light)' }}
+                    >
+                      <td
+                        style={{ padding: '0.5rem 0.6rem', fontWeight: 600, cursor: 'pointer' }}
+                        onClick={() => { onClose(); window.location.href = `/characters/${c.id}`; }}
+                      >
+                        {c.name}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem', fontSize: '0.85rem', color: 'var(--ink-light)' }}>
+                        {c.owner.name || c.owner.email}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>{c.level}</td>
+                      <td style={{ padding: '0.5rem 0.6rem', fontSize: '0.85rem' }}>{c.ruleset}</td>
+                      <td style={{ padding: '0.5rem 0.6rem', fontSize: '0.85rem', color: 'var(--ink-light)' }}>
+                        {new Date(c.updatedAt).toLocaleDateString()}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem' }}>
+                        <button
+                          className="ink-btn"
+                          style={{ fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                          onClick={() => { setTransferCharId(c.id); setTransferToUserId(''); setTransferError(''); }}
+                        >
+                          Transfer
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       </div>
