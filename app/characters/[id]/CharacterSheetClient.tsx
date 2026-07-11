@@ -1079,7 +1079,7 @@ function ConditionTracker({ conditions, toggleCondition }: { conditions: string[
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration, effectiveAbilities, abilityItemSources }: any) {
+function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration, effectiveAbilities, abilityItemSources, itemBonusTotals, effectiveProfBonus }: any) {
   const init = mods['DEX'];
   return (
     <>
