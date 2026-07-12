@@ -836,7 +836,7 @@ export default function CharacterSheetClient({
       </div>
 
       <div className={styles.content}>
-        {tab === 'overview'    && <OverviewTab   {...tabProps} />}
+        {tab === 'overview'    && <OverviewTab   {...tabProps} setPortraitExpanded={setPortraitExpanded} />}
         {tab === 'abilities'   && <AbilitiesTab  {...tabProps} setAbility={setAbility} />}
         {tab === 'combat'      && <CombatTab     {...tabProps} saveMod={saveMod} toggleSave={toggleSave} />}
         {tab === 'skills'      && <SkillsTab     {...tabProps} />}
@@ -1116,7 +1116,7 @@ function ConditionTracker({ conditions, toggleCondition }: { conditions: string[
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
-function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration, effectiveAbilities, abilityItemSources, itemBonusTotals, effectiveProfBonus }: any) {
+function OverviewTab({ state, dispatch, mods, hpDelta, setHpDelta, hpPct, setTab, totalWeight, adjustHP, toggleDS, saveMeta, toggleSlot, longRest, shortRest, setShowLevelUp, conditions, skillMod, toggleInspiration, effectiveAbilities, abilityItemSources, itemBonusTotals, effectiveProfBonus, setPortraitExpanded }: any) {
   const init = mods['DEX'];
   return (
     <>
