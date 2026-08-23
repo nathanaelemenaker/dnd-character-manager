@@ -47,15 +47,53 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const snapshotRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   // Keep current sessionId/campaignId accessible inside interval callbacks
   const activeSessionIdRef = useRef<string | null>(null);
   const activeCampaignIdRef = useRef<string | null>(null);
   const elapsedRef = useRef(0);
+  const recordingStateRef = useRef<RecordState>('idle');
 
   // Keep refs in sync with state
   useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
   useEffect(() => { activeCampaignIdRef.current = activeCampaignId; }, [activeCampaignId]);
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
+  useEffect(() => { recordingStateRef.current = recordingState; }, [recordingState]);
+
+  async function requestWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+    } catch {
+      // Wake lock unavailable (low battery, permissions, etc.) — fail silently
+    }
+  }
+
+  function releaseWakeLock() {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  }
+
+  // Flush snapshot to IndexedDB when tab is hidden; re-acquire wake lock when visible
+  useEffect(() => {
+    if (recordingState !== 'recording' && recordingState !== 'paused') return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        const sid = activeSessionIdRef.current;
+        const cid = activeCampaignIdRef.current;
+        if (sid && cid && chunksRef.current.length > 0) {
+          saveRecording(sid, cid, chunksRef.current, elapsedRef.current).catch(() => {});
+        }
+      } else if (document.visibilityState === 'visible' && recordingStateRef.current === 'recording') {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingState]);
 
   // Warn before tab close / refresh when recording or uploading
   useEffect(() => {
@@ -82,6 +120,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
       if (pollRef.current) clearInterval(pollRef.current);
       if (snapshotRef.current) clearInterval(snapshotRef.current);
       streamRef.current?.getTracks().forEach(t => t.stop());
+      wakeLockRef.current?.release().catch(() => {});
     };
   }, []);
 
@@ -155,6 +194,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
       setErrorMsg('');
       timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
       startSnapshotInterval();
+      requestWakeLock();
       setRecordingState('recording');
     } catch (e: any) {
       setErrorMsg(e?.message?.includes('Permission')
@@ -169,6 +209,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     mediaRecorderRef.current?.pause();
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     stopSnapshotInterval();
+    releaseWakeLock();
     // Save snapshot immediately on pause
     const sid = activeSessionIdRef.current;
     const cid = activeCampaignIdRef.current;
@@ -183,6 +224,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     mediaRecorderRef.current?.resume();
     timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     startSnapshotInterval();
+    requestWakeLock();
     setRecordingState('recording');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -190,6 +232,7 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
   const stopRecording = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     stopSnapshotInterval();
+    releaseWakeLock();
     streamRef.current?.getTracks().forEach(t => t.stop());
     mediaRecorderRef.current?.stop();
     setRecordingState('uploading');
