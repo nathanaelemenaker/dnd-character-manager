@@ -81,6 +81,13 @@ export default function CampaignDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
+  // Session title editing
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+  const [suggestingTitle, setSuggestingTitle] = useState(false);
+
   // Add member form
   const [showAddMember, setShowAddMember] = useState(false);
   const [addMemberMode, setAddMemberMode] = useState<'email' | 'guest'>('email');
@@ -186,6 +193,55 @@ export default function CampaignDetailPage() {
 
   const isDM = membership?.role === 'DM';
   const canManage = isDM || isAdmin;
+
+  function startEditTitle(s: SessionSummary) {
+    setEditingSessionId(s.id);
+    setEditingTitle(s.title ?? '');
+    setTitleSuggestions([]);
+  }
+
+  function cancelEditTitle() {
+    setEditingSessionId(null);
+    setEditingTitle('');
+    setTitleSuggestions([]);
+  }
+
+  async function saveSessionTitle(sessionId: string) {
+    setSavingTitle(true);
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: editingTitle.trim() || '' }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      setCampaign(prev => prev ? {
+        ...prev,
+        sessions: prev.sessions.map(s =>
+          s.id === sessionId ? { ...s, title: editingTitle.trim() || null } : s
+        ),
+      } : prev);
+      setEditingSessionId(null);
+      setTitleSuggestions([]);
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
+  async function fetchTitleSuggestions(sessionId: string) {
+    setSuggestingTitle(true);
+    setTitleSuggestions([]);
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${sessionId}/suggest-title`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error('Failed to get suggestions');
+      const data = await res.json();
+      setTitleSuggestions(data.suggestions ?? []);
+    } finally {
+      setSuggestingTitle(false);
+    }
+  }
 
   // ── DM action handlers ────────────────────────────────────────────────────
   async function handleDmApply(characterId: string, characterName: string) {
@@ -507,39 +563,136 @@ export default function CampaignDetailPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {campaign.sessions.map(s => {
                 const hasOutput = !!s.generatedOutput;
-                return (
-                  <Link
-                    key={s.id}
-                    href={`/campaigns/${campaign.id}/sessions/${s.id}`}
-                    style={{ textDecoration: 'none' }}
+                const isEditing = editingSessionId === s.id;
+
+                const cardInner = (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: isEditing ? 'flex-start' : 'center',
+                      gap: 14,
+                      padding: '12px 16px',
+                      background: 'var(--parchment)',
+                      border: `1.5px solid ${isEditing ? 'var(--gold)' : 'var(--border-light)'}`,
+                      borderRadius: 5,
+                      cursor: isEditing ? 'default' : 'pointer',
+                      transition: 'border-color 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!isEditing) e.currentTarget.style.borderColor = 'var(--gold)'; }}
+                    onMouseLeave={e => { if (!isEditing) e.currentTarget.style.borderColor = 'var(--border-light)'; }}
                   >
                     <div
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 14,
-                        padding: '12px 16px',
-                        background: 'var(--parchment)',
-                        border: '1.5px solid var(--border-light)',
-                        borderRadius: 5,
-                        cursor: 'pointer',
-                        transition: 'border-color 0.15s',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 18,
+                        fontWeight: 700,
+                        color: 'var(--gold)',
+                        minWidth: 36,
+                        textAlign: 'center',
+                        paddingTop: isEditing ? 2 : 0,
                       }}
-                      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--gold)')}
-                      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-light)')}
                     >
-                      <div
-                        style={{
-                          fontFamily: 'var(--font-display)',
-                          fontSize: 18,
-                          fontWeight: 700,
-                          color: 'var(--gold)',
-                          minWidth: 36,
-                          textAlign: 'center',
-                        }}
-                      >
-                        #{s.sessionNumber}
+                      #{s.sessionNumber}
+                    </div>
+
+                    {isEditing ? (
+                      <div style={{ flex: 1 }} onClick={e => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          value={editingTitle}
+                          onChange={e => setEditingTitle(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveSessionTitle(s.id);
+                            if (e.key === 'Escape') cancelEditTitle();
+                          }}
+                          placeholder={`Session ${s.sessionNumber}`}
+                          style={{
+                            width: '100%',
+                            fontFamily: 'var(--font-display)',
+                            fontSize: 13,
+                            color: 'var(--ink)',
+                            fontWeight: 600,
+                            background: 'var(--paper)',
+                            border: '1px solid var(--border-light)',
+                            borderRadius: 3,
+                            padding: '4px 8px',
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                        {/* AI suggestions */}
+                        {titleSuggestions.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                            {titleSuggestions.map((t, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setEditingTitle(t)}
+                                style={{
+                                  fontSize: 11,
+                                  padding: '3px 8px',
+                                  borderRadius: 12,
+                                  border: '1px solid var(--gold)',
+                                  background: editingTitle === t ? 'var(--gold)' : 'transparent',
+                                  color: editingTitle === t ? '#fff' : 'var(--gold)',
+                                  cursor: 'pointer',
+                                  fontFamily: 'var(--font-display)',
+                                }}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                          <button
+                            onClick={() => saveSessionTitle(s.id)}
+                            disabled={savingTitle}
+                            style={{
+                              fontSize: 11,
+                              padding: '3px 10px',
+                              borderRadius: 3,
+                              border: 'none',
+                              background: 'var(--gold)',
+                              color: '#fff',
+                              cursor: 'pointer',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {savingTitle ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            onClick={cancelEditTitle}
+                            style={{
+                              fontSize: 11,
+                              padding: '3px 10px',
+                              borderRadius: 3,
+                              border: '1px solid var(--border-light)',
+                              background: 'transparent',
+                              color: 'var(--border)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => fetchTitleSuggestions(s.id)}
+                            disabled={suggestingTitle}
+                            style={{
+                              fontSize: 11,
+                              padding: '3px 10px',
+                              borderRadius: 3,
+                              border: '1px solid var(--border-light)',
+                              background: 'transparent',
+                              color: 'var(--ink)',
+                              cursor: suggestingTitle ? 'wait' : 'pointer',
+                              marginLeft: 'auto',
+                            }}
+                          >
+                            {suggestingTitle ? '✨ Thinking…' : '✨ AI Suggest'}
+                          </button>
+                        </div>
                       </div>
+                    ) : (
                       <div style={{ flex: 1 }}>
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>
                           {s.title ?? `Session ${s.sessionNumber}`}
@@ -548,10 +701,45 @@ export default function CampaignDetailPage() {
                           {new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: hasOutput ? '#2e7d32' : 'var(--border)', fontStyle: 'italic' }}>
-                        {hasOutput ? '✓ Generated' : 'Pending generation'}
-                      </div>
-                    </div>
+                    )}
+
+                    {!isEditing && (
+                      <>
+                        <div style={{ fontSize: 11, color: hasOutput ? '#2e7d32' : 'var(--border)', fontStyle: 'italic' }}>
+                          {hasOutput ? '✓ Generated' : 'Pending generation'}
+                        </div>
+                        {canManage && (
+                          <button
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); startEditTitle(s); }}
+                            title="Edit title"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: '2px 4px',
+                              color: 'var(--border)',
+                              fontSize: 13,
+                              lineHeight: 1,
+                              flexShrink: 0,
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+
+                return isEditing ? (
+                  <div key={s.id}>{cardInner}</div>
+                ) : (
+                  <Link
+                    key={s.id}
+                    href={`/campaigns/${campaign.id}/sessions/${s.id}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    {cardInner}
                   </Link>
                 );
               })}
