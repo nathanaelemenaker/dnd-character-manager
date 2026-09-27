@@ -47,6 +47,7 @@ interface SessionLog {
   generatedOutput: GeneratedOutput | null;
   attendees: string[] | null;
   shareToken: string | null;
+  sessionImages: Array<{ url: string; prompt: string; generatedAt: string }> | null;
   transcriptStatus: string | null;
   transcriptError: string | null;
   audioPath: string | null;
@@ -360,6 +361,8 @@ export default function SessionLogPage() {
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareNoAICopied, setShareNoAICopied] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -568,6 +571,30 @@ export default function SessionLogPage() {
     setTimeout(() => setShareNoAICopied(false), 2500);
   }
 
+  async function handleGenerateImage() {
+    setGeneratingImage(true);
+    setImageError(null);
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}/generate-image`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'comfyui_offline') {
+          setImageError('ComfyUI is offline. Start it on your Windows machine and try again.');
+        } else {
+          setImageError(data.message ?? 'Image generation failed.');
+        }
+        return;
+      }
+      await load();
+    } catch {
+      setImageError('Could not reach the server.');
+    } finally {
+      setGeneratingImage(false);
+    }
+  }
+
   function seekToSegment(start: number, index: number) {
     const audio = audioRef.current;
     if (!audio) return;
@@ -672,6 +699,14 @@ export default function SessionLogPage() {
           {output && (<>
             <button
               className="ink-btn ghost"
+              onClick={handleGenerateImage}
+              disabled={generatingImage}
+              style={{ fontSize: 12 }}
+            >
+              {generatingImage ? '⏳ Generating image…' : '🎨 Generate Image'}
+            </button>
+            <button
+              className="ink-btn ghost"
               onClick={handleShare}
               style={{ fontSize: 12 }}
             >
@@ -695,6 +730,27 @@ export default function SessionLogPage() {
           </button>
         </div>
       </div>
+
+      {/* Image error */}
+      {imageError && (
+        <div style={{ background: 'rgba(183,28,28,0.08)', border: '1px solid rgba(183,28,28,0.3)', borderRadius: 4, padding: '8px 12px', fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>
+          {imageError}
+        </div>
+      )}
+
+      {/* Session AI image */}
+      {log.sessionImages && log.sessionImages.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <img
+            src={log.sessionImages[0].url}
+            alt="AI-generated session illustration"
+            style={{ width: '100%', borderRadius: 6, border: '1.5px solid var(--border-light)', display: 'block' }}
+          />
+          <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 4 }}>
+            AI-generated · {new Date(log.sessionImages[0].generatedAt).toLocaleDateString()}
+          </div>
+        </div>
+      )}
 
       {/* Session title from Claude */}
       {output?.sessionTitle && (

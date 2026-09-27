@@ -16,7 +16,7 @@ const META_SELECT = {
   ac: true, speed: true,
   hpCurrent: true, hpMax: true, hpTemp: true,
   inspiration: true, currency: true, bio: true, deathSaves: true,
-  conditions: true,
+  conditions: true, appearance: true,
   updatedAt: true,
 } as const;
 
@@ -107,6 +107,8 @@ export async function PUT(
       }
       data.currency = cur;
     }
+
+    if (typeof body.appearance === 'string') data.appearance = body.appearance.slice(0, 1000);
 
     if (body.bio && typeof body.bio === 'object') {
       const allowed = ['age','height','weight','eyes','skin','hair',

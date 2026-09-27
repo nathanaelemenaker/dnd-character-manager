@@ -23,6 +23,7 @@ interface CampaignMember {
   userId: string | null;
   guestName: string | null;
   guestCharacterName: string | null;
+  guestCharacterAppearance: string | null;
   user: { id: string; name: string | null; email: string; characters: { id: string; name: string }[] } | null;
   character: {
     id: string;
@@ -102,6 +103,8 @@ export default function CampaignDetailPage() {
   const [linkError, setLinkError] = useState('');
   const [editingCharNameId, setEditingCharNameId] = useState<string | null>(null);
   const [editingCharNameValue, setEditingCharNameValue] = useState('');
+  const [editingAppearanceId, setEditingAppearanceId] = useState<string | null>(null);
+  const [editingAppearanceValue, setEditingAppearanceValue] = useState('');
 
   const [myCharacters, setMyCharacters] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedCharId, setSelectedCharId] = useState('');
@@ -405,6 +408,16 @@ export default function CampaignDetailPage() {
       body: JSON.stringify({ guestCharacterName: editingCharNameValue.trim() || null }),
     });
     setEditingCharNameId(null);
+    load();
+  }
+
+  async function handleSaveGuestAppearance(memberId: string) {
+    await fetch(`/api/campaigns/${params.id}/members/${memberId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestCharacterAppearance: editingAppearanceValue.trim() || null }),
+    });
+    setEditingAppearanceId(null);
     load();
   }
 
@@ -837,6 +850,35 @@ export default function CampaignDetailPage() {
                               ? <span style={{ fontFamily: 'var(--font-display)' }}>{m.guestCharacterName}</span>
                               : <span style={{ fontStyle: 'italic' }}>{canManage ? 'Click to set character name' : 'No character set'}</span>
                             }
+                          </div>
+                        )}
+                        {canManage && (
+                          <div style={{ marginTop: 6 }}>
+                            <div style={{ fontSize: 10, color: 'var(--border)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>AI Appearance</div>
+                            {editingAppearanceId === m.id ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <textarea
+                                  rows={2}
+                                  style={{ width: '100%', fontSize: 11, padding: '3px 6px', border: '1px solid var(--border-light)', borderRadius: 3, resize: 'vertical' }}
+                                  placeholder="e.g. Half-elf, silver hair, green cloak..."
+                                  value={editingAppearanceValue}
+                                  autoFocus
+                                  onChange={e => setEditingAppearanceValue(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Escape') setEditingAppearanceId(null); }}
+                                />
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                  <button className="ink-btn" style={{ fontSize: 10 }} onClick={() => handleSaveGuestAppearance(m.id)}>Save</button>
+                                  <button className="ink-btn ghost" style={{ fontSize: 10 }} onClick={() => setEditingAppearanceId(null)}>Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                style={{ fontSize: 11, color: m.guestCharacterAppearance ? 'var(--ink)' : 'var(--border)', cursor: 'pointer', fontStyle: m.guestCharacterAppearance ? 'normal' : 'italic' }}
+                                onClick={() => { setEditingAppearanceId(m.id); setEditingAppearanceValue(m.guestCharacterAppearance ?? ''); }}
+                              >
+                                {m.guestCharacterAppearance ?? 'Click to set appearance for AI images'}
+                              </div>
+                            )}
                           </div>
                         )}
                         <div className="empty-state" style={{ textAlign: 'left', padding: 0, fontSize: 11 }}>No account linked</div>

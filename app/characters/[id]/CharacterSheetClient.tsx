@@ -68,6 +68,7 @@ interface SheetState {
   currency: Record<string, number>;
   features: Feature[];
   bio: Record<string, string>;
+  appearance: string;
   conditions: string[];
   _updatedAt: string; // ISO timestamp from server for concurrency control
 }
@@ -143,6 +144,7 @@ function buildInitialState(
     skills, saves, spellSlots: slots, spells, inventory, features,
     currency: c.currency,
     bio: c.bio,
+    appearance: c.appearance ?? '',
     conditions: c.conditions ?? [],
     _updatedAt: c.updatedAt ?? new Date().toISOString(),
   };
@@ -257,6 +259,7 @@ export default function CharacterSheetClient({
           inspiration: d.inspiration ?? false,
           currency: d.currency ?? { cp:0,sp:0,ep:0,gp:0,pp:0 },
           bio: d.bio ?? {},
+          appearance: d.appearance ?? '',
           deathSaves: d.deathSaves ?? { successes: 0, failures: 0 },
           _updatedAt: d.updatedAt ? new Date(d.updatedAt).toISOString() : new Date().toISOString(),
         }});
@@ -3934,6 +3937,25 @@ function BioTab({ state, dispatch, saveMeta, saveCharacterMeta, saveClasses, del
           {[['personalityTraits','Personality Traits',2],['ideals','Ideals',2],['bonds','Bonds',2],['flaws','Flaws',2],['backstory','Backstory',4]].map(([k,l,r]) => (
             <div key={k as string}><div className="field-label">{l}</div><textarea rows={r as number} value={state.bio[k as string]||''} onChange={(e) => updateBioField(k as string, e.target.value)} style={{ width: '100%', resize: 'vertical' }} /></div>
           ))}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">AI Image Appearance</div>
+        <div className="panel-body" style={{ display: 'grid', gap: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--border)', fontStyle: 'italic' }}>
+            Describe how this character looks — used when generating AI session images. Race, build, hair, eyes, clothing, distinctive features.
+          </div>
+          <textarea
+            rows={3}
+            placeholder="e.g. Half-elf druid, lean build, copper skin, wild silver-streaked hair tied back with twine, green traveling cloak, leaf-pattern tattoos on forearms, always barefoot"
+            value={state.appearance ?? ''}
+            onChange={e => {
+              dispatch({ type: 'SET', payload: { appearance: e.target.value } });
+              saveMeta({ appearance: e.target.value });
+            }}
+            style={{ width: '100%', resize: 'vertical' }}
+          />
         </div>
       </div>
 

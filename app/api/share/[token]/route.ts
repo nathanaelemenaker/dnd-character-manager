@@ -14,6 +14,7 @@ export async function GET(
         sessionNumber: true,
         title: true,
         generatedOutput: true,
+        sessionImages: true,
         campaign: { select: { name: true, description: true } },
       },
     });

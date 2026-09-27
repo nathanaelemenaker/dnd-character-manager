@@ -25,6 +25,7 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     if (body?.characterId !== undefined) data.characterId = body.characterId || null;
     if (body?.guestCharacterName !== undefined) data.guestCharacterName = body.guestCharacterName?.toString().trim() || null;
+    if (body?.guestCharacterAppearance !== undefined) data.guestCharacterAppearance = body.guestCharacterAppearance?.toString().trim() || null;
     // Only DMs/admins can change role
     if (body?.role !== undefined && (isAdmin || callerMembership?.role === 'DM')) {
       data.role = body.role === 'DM' ? 'DM' : 'PLAYER';

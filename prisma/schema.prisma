@@ -64,6 +64,9 @@ model Character {
   deathSaves Json @default("{\"successes\":0,\"failures\":0}")
   conditions Json @default("[]")
 
+  // ── AI image generation ──
+  appearance String?
+
   // ── Relations ──
   classes        CharacterClass[]
   abilities      AbilityScores?
@@ -300,6 +303,7 @@ model CampaignMember {
   user              User?      @relation(fields: [userId], references: [id])
   guestName         String?
   guestCharacterName String?
+  guestCharacterAppearance String?
   characterId       String?
   character   Character?   @relation(fields: [characterId], references: [id], onDelete: SetNull)
   role        CampaignRole @default(PLAYER)
@@ -337,6 +341,7 @@ model SessionLog {
   generatedOutput  Json?
   attendees        Json?
   shareToken       String?  @unique
+  sessionImages    Json?
   transcriptStatus String?
   transcriptError  String?
   audioPath        String?

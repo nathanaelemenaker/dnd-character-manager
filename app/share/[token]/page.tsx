@@ -37,6 +37,7 @@ interface SharedSession {
   sessionNumber: number;
   title: string | null;
   generatedOutput: GeneratedOutput;
+  sessionImages: Array<{ url: string; prompt: string; generatedAt: string }> | null;
   campaign: { name: string; description: string | null };
 }
 
@@ -110,6 +111,20 @@ export default function SharePage() {
         {output.sessionTitle && (
           <div style={{ fontSize: 14, fontStyle: 'italic', color: '#8b6914', marginBottom: 20, opacity: 0.9 }}>
             "{output.sessionTitle}"
+          </div>
+        )}
+
+        {/* AI session image */}
+        {!noImages && session.sessionImages && session.sessionImages.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <img
+              src={session.sessionImages[0].url}
+              alt="AI-generated session illustration"
+              style={{ width: '100%', borderRadius: 6, border: '1.5px solid #d4c5a0', display: 'block' }}
+            />
+            <div style={{ fontSize: 10, color: '#aaa', fontStyle: 'italic', marginTop: 4, fontFamily: 'Georgia, serif' }}>
+              AI-generated illustration · {new Date(session.sessionImages[0].generatedAt).toLocaleDateString()}
+            </div>
           </div>
         )}
 

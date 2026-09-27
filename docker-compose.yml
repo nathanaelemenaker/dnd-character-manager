@@ -30,6 +30,8 @@ services:
     image: node:20-slim
     working_dir: /app
     env_file: .env
+    environment:
+      - COMFYUI_URL=http://192.168.128.95:8188
     volumes:
       - /mnt/nas-docker/dnd-sheet:/app
       - /mnt/nas-docker/dnd-sheet/audio:/opt/dnd-sheet/audio
