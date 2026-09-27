@@ -54,6 +54,11 @@ export default function SharePage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'combat' | 'party'>('summary');
+  const [noImages, setNoImages] = useState(false);
+
+  useEffect(() => {
+    setNoImages(new URLSearchParams(window.location.search).get('no_images') === '1');
+  }, []);
 
   useEffect(() => {
     fetch(`/api/share/${params.token}`)

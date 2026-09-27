@@ -359,6 +359,7 @@ export default function SessionLogPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareNoAICopied, setShareNoAICopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -539,7 +540,7 @@ export default function SessionLogPage() {
     });
   }
 
-  async function handleShare() {
+  async function ensureShareToken(): Promise<string> {
     let token = log?.shareToken;
     if (!token) {
       token = crypto.randomUUID();
@@ -550,9 +551,21 @@ export default function SessionLogPage() {
       });
       setLog(prev => prev ? { ...prev, shareToken: token! } : prev);
     }
+    return token;
+  }
+
+  async function handleShare() {
+    const token = await ensureShareToken();
     await navigator.clipboard.writeText(`${window.location.origin}/share/${token}`);
     setShareCopied(true);
     setTimeout(() => setShareCopied(false), 2500);
+  }
+
+  async function handleShareNoAI() {
+    const token = await ensureShareToken();
+    await navigator.clipboard.writeText(`${window.location.origin}/share/${token}?no_images=1`);
+    setShareNoAICopied(true);
+    setTimeout(() => setShareNoAICopied(false), 2500);
   }
 
   function seekToSegment(start: number, index: number) {
@@ -656,7 +669,7 @@ export default function SessionLogPage() {
                 ? '↺ Regenerate'
                 : '✦ Generate Log'}
           </button>
-          {output && (
+          {output && (<>
             <button
               className="ink-btn ghost"
               onClick={handleShare}
@@ -664,7 +677,14 @@ export default function SessionLogPage() {
             >
               {shareCopied ? '✓ Copied!' : '🔗 Share'}
             </button>
-          )}
+            <button
+              className="ink-btn ghost"
+              onClick={handleShareNoAI}
+              style={{ fontSize: 12 }}
+            >
+              {shareNoAICopied ? '✓ Copied!' : '🔗 Share (no AI art)'}
+            </button>
+          </>)}
           <button
             className="ink-btn danger"
             onClick={handleDelete}
