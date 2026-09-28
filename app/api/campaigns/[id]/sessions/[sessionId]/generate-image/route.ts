@@ -11,7 +11,7 @@ export const maxDuration = 300;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const COMFYUI_URL = process.env.COMFYUI_URL ?? 'http://192.168.128.95:8188';
-const IMAGE_DIR = '/app/public/uploads/session-images';
+const IMAGE_DIR = () => path.join(process.cwd(), 'public', 'uploads', 'session-images');
 
 interface GeneratedOutput {
   summary?: string;
@@ -101,11 +101,12 @@ async function fetchAndSaveImage(filename: string, sessionId: string): Promise<s
   if (!res.ok) throw new Error(`Failed to fetch image from ComfyUI: ${res.status}`);
 
   const buffer = Buffer.from(await res.arrayBuffer());
-  if (!existsSync(IMAGE_DIR)) await mkdir(IMAGE_DIR, { recursive: true });
+  const dir = IMAGE_DIR();
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true });
 
   const outFilename = `${sessionId}-${Date.now()}.png`;
-  await writeFile(path.join(IMAGE_DIR, outFilename), buffer);
-  return `/uploads/session-images/${outFilename}`;
+  await writeFile(path.join(dir, outFilename), buffer);
+  return `/api/session-images/${outFilename}`;
 }
 
 export async function POST(
