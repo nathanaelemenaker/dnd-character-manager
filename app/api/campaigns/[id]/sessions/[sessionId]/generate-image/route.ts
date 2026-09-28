@@ -23,33 +23,31 @@ async function buildImagePrompt(
   recap: GeneratedOutput,
   characters: Array<{ name: string; appearance: string }>,
 ): Promise<string> {
-  const charBlock = characters.length > 0
-    ? characters.map(c => `- ${c.name}: ${c.appearance}`).join('\n')
-    : 'No character descriptions available.';
-
+  // Claude writes only the scene — action, location, mood, composition.
+  // Character appearances are appended verbatim so no details get lost in summarization.
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 300,
+    max_tokens: 200,
     messages: [{
       role: 'user',
-      content: `You are writing a prompt for an AI image generator (Flux 2, medieval fantasy art style).
+      content: `You are writing the SCENE DESCRIPTION portion of an AI image generation prompt for a D&D session illustration.
 
 Session recap:
 ${recap.epicMoment ?? recap.summary ?? ''}
 
-Character appearances:
-${charBlock}
-
-Write a single image generation prompt (2-4 sentences, no line breaks) for the most visually striking moment from this session. Rules:
-- Incorporate the specific character appearance details provided — describe them precisely as written
-- The setting is MEDIEVAL FANTASY — no modern clothing, suits, ties, or contemporary elements ever
-- End with: "Epic fantasy digital painting, D&D 5e sourcebook illustration style, cinematic lighting, highly detailed."
-- Do not include any explanation — output only the prompt text.`,
+Write 2-3 sentences describing ONLY: what is happening in the most visually striking moment, the setting/location, the lighting and mood. Do NOT describe any character appearances — those will be added separately. Medieval fantasy setting only — no modern elements. No explanation, no preamble, just the scene sentences.`,
     }],
   });
 
-  const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-  return text;
+  const sceneText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+
+  // Append character appearances verbatim — no summarization
+  const charLines = characters.length > 0
+    ? 'Characters present: ' + characters.map(c => `${c.name} — ${c.appearance}`).join('. ')
+    : '';
+
+  const parts = [sceneText, charLines, 'Epic fantasy digital painting, D&D 5e sourcebook illustration style, cinematic lighting, highly detailed.'].filter(Boolean);
+  return parts.join(' ');
 }
 
 async function enqueueFlux2(prompt: string): Promise<string> {
