@@ -32,7 +32,7 @@ async function buildImagePrompt(
     max_tokens: 300,
     messages: [{
       role: 'user',
-      content: `You are writing a prompt for an AI image generator (Flux 2, fantasy art style).
+      content: `You are writing a prompt for an AI image generator (Flux 2, medieval fantasy art style).
 
 Session recap:
 ${recap.epicMoment ?? recap.summary ?? ''}
@@ -40,7 +40,11 @@ ${recap.epicMoment ?? recap.summary ?? ''}
 Character appearances:
 ${charBlock}
 
-Write a single image generation prompt (2-4 sentences, no line breaks) for the most visually striking moment from this session. Incorporate specific character details where relevant. The style should be "epic fantasy digital painting, D&D 5e sourcebook illustration style, cinematic lighting, highly detailed". Do not include any explanation — just the prompt text.`,
+Write a single image generation prompt (2-4 sentences, no line breaks) for the most visually striking moment from this session. Rules:
+- Incorporate the specific character appearance details provided — describe them precisely as written
+- The setting is MEDIEVAL FANTASY — no modern clothing, suits, ties, or contemporary elements ever
+- End with: "Epic fantasy digital painting, D&D 5e sourcebook illustration style, cinematic lighting, highly detailed."
+- Do not include any explanation — output only the prompt text.`,
     }],
   });
 
@@ -53,11 +57,10 @@ async function enqueueFlux2(prompt: string): Promise<string> {
     "1": { class_type: "UNETLoader", inputs: { unet_name: "flux2_dev_fp8mixed.safetensors", weight_dtype: "default" } },
     "2": { class_type: "CLIPLoader", inputs: { clip_name: "mistral_3_small_flux2_bf16.safetensors", type: "flux2" } },
     "3": { class_type: "VAELoader", inputs: { vae_name: "flux2-vae.safetensors" } },
-    "4": { class_type: "LoraLoader", inputs: { model: ["1", 0], clip: ["2", 0], lora_name: "Flux_2-Turbo-LoRA_comfyui.safetensors", strength_model: 1, strength_clip: 1 } },
-    "5": { class_type: "CLIPTextEncode", inputs: { clip: ["4", 1], text: prompt } },
-    "6": { class_type: "CLIPTextEncode", inputs: { clip: ["4", 1], text: "blurry, low quality, bad anatomy, text, watermark, modern, sci-fi, ugly" } },
+    "5": { class_type: "CLIPTextEncode", inputs: { clip: ["2", 0], text: prompt } },
+    "6": { class_type: "CLIPTextEncode", inputs: { clip: ["2", 0], text: "blurry, low quality, bad anatomy, text, watermark, modern clothing, suit, tie, contemporary, sci-fi, ugly, poorly drawn" } },
     "7": { class_type: "EmptyLatentImage", inputs: { width: 1024, height: 768, batch_size: 1 } },
-    "8": { class_type: "KSampler", inputs: { model: ["4", 0], positive: ["5", 0], negative: ["6", 0], latent_image: ["7", 0], seed: Math.floor(Math.random() * 2 ** 32), steps: 8, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 } },
+    "8": { class_type: "KSampler", inputs: { model: ["1", 0], positive: ["5", 0], negative: ["6", 0], latent_image: ["7", 0], seed: Math.floor(Math.random() * 2 ** 32), steps: 20, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 } },
     "9": { class_type: "VAEDecode", inputs: { samples: ["8", 0], vae: ["3", 0] } },
     "10": { class_type: "SaveImage", inputs: { images: ["9", 0], filename_prefix: "dnd_session" } },
   };
