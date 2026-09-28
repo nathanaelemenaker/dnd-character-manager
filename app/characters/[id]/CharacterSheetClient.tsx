@@ -27,6 +27,7 @@ export interface CharacterProp {
   portrait?: string | null;
   currency: Record<string, number>;
   bio: Record<string, string>;
+  appearance?: string;
   deathSaves: { successes: number; failures: number };
   conditions?: string[];
   updatedAt?: string;

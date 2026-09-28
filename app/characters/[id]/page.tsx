@@ -23,7 +23,7 @@ export default async function CharacterDetailPage({
       ac: true, speed: true, hpCurrent: true, hpMax: true, hpTemp: true,
       inspiration: true, portrait: true,
       currency: true, bio: true, deathSaves: true, conditions: true,
-      updatedAt: true,
+      appearance: true, updatedAt: true,
     },
   });
   if (!character) notFound();
@@ -71,6 +71,7 @@ export default async function CharacterDetailPage({
         updatedAt: character.updatedAt?.toISOString() ?? new Date().toISOString(),
         currency: character.currency as Record<string, number>,
         bio: character.bio as Record<string, string>,
+        appearance: character.appearance ?? '',
         deathSaves: character.deathSaves as { successes: number; failures: number },
         conditions: (character.conditions as string[]) ?? [],
       }}
