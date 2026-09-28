@@ -25,25 +25,34 @@ async function buildImagePrompt(
 ): Promise<string> {
   // Claude writes only the scene — action, location, mood, composition.
   // Character appearances are appended verbatim so no details get lost in summarization.
+  const characterNames = characters.map(c => c.name);
+  const nameList = characterNames.length > 0 ? characterNames.join(', ') : 'the party';
+
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 200,
+    max_tokens: 300,
     messages: [{
       role: 'user',
-      content: `You are writing the SCENE DESCRIPTION portion of an AI image generation prompt for a D&D session illustration.
+      content: `You are writing the scene and composition portion of an AI image generation prompt for a D&D fantasy illustration.
 
 Session recap:
 ${recap.epicMoment ?? recap.summary ?? ''}
 
-Write 2-3 sentences describing ONLY: what is happening in the most visually striking moment, the setting/location, the lighting and mood. Do NOT describe any character appearances — those will be added separately. Medieval fantasy setting only — no modern elements. No explanation, no preamble, just the scene sentences.`,
+Characters in this scene: ${nameList}
+
+Write 3-4 sentences covering:
+1. What is happening in the most visually striking moment and the setting/location/mood
+2. Where each character (${nameList}) is positioned in the frame, their pose, and what action they are performing
+
+Do NOT describe character appearances (clothing, hair, skin, etc.) — those will be appended separately. Medieval fantasy only — no modern elements. No explanation or preamble, output only the scene and composition sentences.`,
     }],
   });
 
   const sceneText = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
 
-  // Append character appearances verbatim — no summarization
+  // Append character appearances verbatim after the scene — no summarization
   const charLines = characters.length > 0
-    ? 'Characters present: ' + characters.map(c => `${c.name} — ${c.appearance}`).join('. ')
+    ? 'Character appearances: ' + characters.map(c => `${c.name} — ${c.appearance}`).join('; ')
     : '';
 
   const parts = [sceneText, charLines, 'Epic fantasy digital painting, D&D 5e sourcebook illustration style, cinematic lighting, highly detailed.'].filter(Boolean);
