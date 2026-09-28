@@ -119,6 +119,65 @@ async function fetchAndSaveImage(filename: string, sessionId: string): Promise<s
   return `/api/session-images/${outFilename}`;
 }
 
+async function loadPromptData(campaignId: string, sessionId: string) {
+  const sessionLog = await prisma.sessionLog.findUnique({
+    where: { id: sessionId, campaignId },
+    select: { generatedOutput: true, attendees: true },
+  });
+  if (!sessionLog?.generatedOutput) return null;
+
+  const attendeeIds = (sessionLog.attendees as string[] | null) ?? [];
+  const members = await prisma.campaignMember.findMany({
+    where: { id: { in: attendeeIds }, campaignId },
+    select: {
+      guestCharacterName: true,
+      guestCharacterAppearance: true,
+      character: { select: { name: true, appearance: true } },
+    },
+  });
+
+  const characters = members
+    .map(m => {
+      const name = m.character?.name ?? m.guestCharacterName;
+      const appearance = m.character?.appearance ?? m.guestCharacterAppearance;
+      return name && appearance ? { name, appearance } : null;
+    })
+    .filter((x): x is { name: string; appearance: string } => x !== null);
+
+  return { recap: sessionLog.generatedOutput as GeneratedOutput, characters };
+}
+
+async function authCheck(campaignId: string, userId: string, role: string) {
+  if (hasRole(role, 'ADMIN')) return true;
+  const membership = await prisma.campaignMember.findUnique({
+    where: { campaignId_userId: { campaignId, userId } },
+  });
+  return membership?.role === 'DM';
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string; sessionId: string } }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  try {
+    if (!await authCheck(params.id, session.userId, session.role)) {
+      return NextResponse.json({ error: 'forbidden — DM only' }, { status: 403 });
+    }
+
+    const data = await loadPromptData(params.id, params.sessionId);
+    if (!data) return NextResponse.json({ error: 'no_recap — generate session log first' }, { status: 400 });
+
+    const prompt = await buildImagePrompt(data.recap, data.characters);
+    return NextResponse.json({ prompt });
+  } catch (err: any) {
+    console.error('GET /generate-image error:', err);
+    return NextResponse.json({ error: 'failed to build prompt', message: err?.message }, { status: 500 });
+  }
+}
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: { id: string; sessionId: string } }
@@ -127,45 +186,15 @@ export async function POST(
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   try {
-    const isAdmin = hasRole(session.role, 'ADMIN');
-    const membership = await prisma.campaignMember.findUnique({
-      where: { campaignId_userId: { campaignId: params.id, userId: session.userId } },
-    });
-    if (!isAdmin && membership?.role !== 'DM') {
+    if (!await authCheck(params.id, session.userId, session.role)) {
       return NextResponse.json({ error: 'forbidden — DM only' }, { status: 403 });
     }
 
-    const sessionLog = await prisma.sessionLog.findUnique({
-      where: { id: params.sessionId, campaignId: params.id },
-      select: { generatedOutput: true, attendees: true },
-    });
-    if (!sessionLog?.generatedOutput) {
-      return NextResponse.json({ error: 'no_recap — generate session log first' }, { status: 400 });
-    }
-
-    // Load attendee appearances
-    const attendeeIds = (sessionLog.attendees as string[] | null) ?? [];
-    const members = await prisma.campaignMember.findMany({
-      where: { id: { in: attendeeIds }, campaignId: params.id },
-      select: {
-        guestCharacterName: true,
-        guestCharacterAppearance: true,
-        character: { select: { name: true, appearance: true } },
-      },
-    });
-
-    const characters = members
-      .map(m => {
-        const name = m.character?.name ?? m.guestCharacterName;
-        const appearance = m.character?.appearance ?? m.guestCharacterAppearance;
-        return name && appearance ? { name, appearance } : null;
-      })
-      .filter((x): x is { name: string; appearance: string } => x !== null);
-
-    const recap = sessionLog.generatedOutput as GeneratedOutput;
+    const data = await loadPromptData(params.id, params.sessionId);
+    if (!data) return NextResponse.json({ error: 'no_recap — generate session log first' }, { status: 400 });
 
     // Build prompt via Claude
-    const imagePrompt = await buildImagePrompt(recap, characters);
+    const imagePrompt = await buildImagePrompt(data.recap, data.characters);
 
     // Enqueue in ComfyUI and wait
     const promptId = await enqueueFlux2(imagePrompt);

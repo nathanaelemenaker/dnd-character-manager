@@ -363,6 +363,8 @@ export default function SessionLogPage() {
   const [shareNoAICopied, setShareNoAICopied] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [previewPrompt, setPreviewPrompt] = useState<string | null>(null);
+  const [loadingPrompt, setLoadingPrompt] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -571,6 +573,22 @@ export default function SessionLogPage() {
     setTimeout(() => setShareNoAICopied(false), 2500);
   }
 
+  async function handlePreviewPrompt() {
+    setLoadingPrompt(true);
+    setPreviewPrompt(null);
+    setImageError(null);
+    try {
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}/generate-image`);
+      const data = await res.json();
+      if (!res.ok) { setImageError(data.message ?? 'Failed to build prompt.'); return; }
+      setPreviewPrompt(data.prompt);
+    } catch {
+      setImageError('Could not reach the server.');
+    } finally {
+      setLoadingPrompt(false);
+    }
+  }
+
   async function handleGenerateImage() {
     setGeneratingImage(true);
     setImageError(null);
@@ -699,8 +717,16 @@ export default function SessionLogPage() {
           {output && (<>
             <button
               className="ink-btn ghost"
+              onClick={handlePreviewPrompt}
+              disabled={loadingPrompt || generatingImage}
+              style={{ fontSize: 12 }}
+            >
+              {loadingPrompt ? '⏳ Building…' : '👁 Preview prompt'}
+            </button>
+            <button
+              className="ink-btn ghost"
               onClick={handleGenerateImage}
-              disabled={generatingImage}
+              disabled={generatingImage || loadingPrompt}
               style={{ fontSize: 12 }}
             >
               {generatingImage ? '⏳ Generating image…' : '🎨 Generate Image'}
@@ -735,6 +761,20 @@ export default function SessionLogPage() {
       {imageError && (
         <div style={{ background: 'rgba(183,28,28,0.08)', border: '1px solid rgba(183,28,28,0.3)', borderRadius: 4, padding: '8px 12px', fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>
           {imageError}
+        </div>
+      )}
+
+      {/* Prompt preview */}
+      {previewPrompt && (
+        <div style={{ background: 'var(--parchment-dark)', border: '1.5px solid var(--border-light)', borderRadius: 6, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--border)', textTransform: 'uppercase', letterSpacing: 1 }}>Image Prompt Preview</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="ink-btn ghost" style={{ fontSize: 10 }} onClick={() => navigator.clipboard.writeText(previewPrompt)}>Copy</button>
+              <button className="ink-btn ghost" style={{ fontSize: 10 }} onClick={() => setPreviewPrompt(null)}>✕</button>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{previewPrompt}</div>
         </div>
       )}
 
