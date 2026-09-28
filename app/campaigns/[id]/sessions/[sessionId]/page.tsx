@@ -746,8 +746,17 @@ export default function SessionLogPage() {
             alt="AI-generated session illustration"
             style={{ width: '100%', borderRadius: 6, border: '1.5px solid var(--border-light)', display: 'block' }}
           />
-          <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic', marginTop: 4 }}>
-            AI-generated · {new Date(log.sessionImages[0].generatedAt).toLocaleDateString()}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+            <div style={{ fontSize: 10, color: 'var(--border)', fontStyle: 'italic' }}>
+              AI-generated · {new Date(log.sessionImages[0].generatedAt).toLocaleDateString()}
+            </div>
+            <button
+              className="ink-btn ghost"
+              style={{ fontSize: 10 }}
+              onClick={() => navigator.clipboard.writeText(log.sessionImages![0].prompt)}
+            >
+              Copy prompt
+            </button>
           </div>
         </div>
       )}
