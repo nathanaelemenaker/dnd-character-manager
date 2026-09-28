@@ -358,6 +358,7 @@ export default function SessionLogPage() {
   const [showVersions, setShowVersions] = useState(false);
   const [versionKey, setVersionKey] = useState(0); // bump to reload version list
   const audioRef = useRef<HTMLAudioElement>(null);
+  const imageUploadRef = useRef<HTMLInputElement>(null);
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const [shareNoAICopied, setShareNoAICopied] = useState(false);
@@ -589,6 +590,29 @@ export default function SessionLogPage() {
     }
   }
 
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setGeneratingImage(true);
+    setImageError(null);
+    try {
+      const form = new FormData();
+      form.append('image', file);
+      const res = await fetch(`/api/campaigns/${params.id}/sessions/${params.sessionId}/generate-image`, {
+        method: 'PUT',
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) { setImageError(data.message ?? 'Upload failed.'); return; }
+      await load();
+    } catch {
+      setImageError('Could not reach the server.');
+    } finally {
+      setGeneratingImage(false);
+    }
+  }
+
   async function handleGenerateImage() {
     setGeneratingImage(true);
     setImageError(null);
@@ -731,6 +755,21 @@ export default function SessionLogPage() {
             >
               {generatingImage ? '⏳ Generating image…' : '🎨 Generate Image'}
             </button>
+            <button
+              className="ink-btn ghost"
+              onClick={() => imageUploadRef.current?.click()}
+              disabled={generatingImage || loadingPrompt}
+              style={{ fontSize: 12 }}
+            >
+              ⬆ Upload Image
+            </button>
+            <input
+              ref={imageUploadRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              style={{ display: 'none' }}
+              onChange={handleImageUpload}
+            />
             <button
               className="ink-btn ghost"
               onClick={handleShare}

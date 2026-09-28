@@ -225,3 +225,51 @@ export async function POST(
     );
   }
 }
+
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string; sessionId: string } }
+) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  try {
+    if (!await authCheck(params.id, session.userId, session.role)) {
+      return NextResponse.json({ error: 'forbidden — DM only' }, { status: 403 });
+    }
+
+    const formData = await req.formData();
+    const file = formData.get('image') as File | null;
+    if (!file) return NextResponse.json({ error: 'image file required' }, { status: 400 });
+
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      return NextResponse.json({ error: 'unsupported file type — use PNG, JPEG, or WebP' }, { status: 400 });
+    }
+
+    const ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png';
+    const outFilename = `${params.sessionId}-${Date.now()}.${ext}`;
+    const dir = IMAGE_DIR();
+    if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, outFilename), Buffer.from(await file.arrayBuffer()));
+
+    const imagePath = `/api/session-images/${outFilename}`;
+
+    const existing = await prisma.sessionLog.findUnique({
+      where: { id: params.sessionId },
+      select: { sessionImages: true },
+    });
+    const images = (existing?.sessionImages as any[] | null) ?? [];
+    images.unshift({ url: imagePath, prompt: 'Uploaded externally', generatedAt: new Date().toISOString() });
+
+    await prisma.sessionLog.update({
+      where: { id: params.sessionId },
+      data: { sessionImages: images },
+    });
+
+    return NextResponse.json({ url: imagePath });
+  } catch (err: any) {
+    console.error('PUT /generate-image error:', err);
+    return NextResponse.json({ error: 'upload_failed', message: err?.message }, { status: 500 });
+  }
+}
